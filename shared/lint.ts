@@ -45,7 +45,7 @@ export function faceInFrame(doc: ProjectDoc, ctx: Pick<LintContext, 'layout' | '
   const face = faceAt(track, st);
   if (!face) return null;
   const { width: W, height: H } = doc.settings;
-  const g = layerGeometry(size.width, size.height, W, H, framingAt(c.framing, track, st));
+  const g = layerGeometry(size.width, size.height, W, H, framingAt(c.framing, track, st, c.motion, t - seg.start));
   const k = g.dst.w / g.src.w;
   return {
     x: (g.dst.x + (face.x * size.width - g.src.x) * k) / W,

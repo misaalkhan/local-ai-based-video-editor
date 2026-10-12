@@ -115,6 +115,17 @@ export interface SourceClip extends ItemMeta {
   fadeOut?: number;
   framing?: Framing;
   fx?: ClipFx;
+  /** Movement of the picture over the clip's life (a push-in, a pan, a Ken Burns drift): keyframes of the framing. */
+  motion?: MotionKeyframe[];
+}
+
+/** A framing at a moment, in seconds after the clip starts. Missing values keep the clip's framing. */
+export interface MotionKeyframe {
+  t: number;
+  scale?: number;
+  focusX?: number;
+  focusY?: number;
+  ease?: Ease;
 }
 
 export interface MediaMainClip extends SourceClip {

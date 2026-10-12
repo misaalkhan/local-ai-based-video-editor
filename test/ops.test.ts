@@ -552,3 +552,26 @@ test('face tracking moves the crop', () => {
   const g = layerGeometry(1920, 1080, 1080, 1920, f);
   near(g.src.x, 0.3 * 1920 - 607.5 / 2);
 });
+
+test('motion keyframes ease the framing between them', async () => {
+  const { motionAt } = await import('../shared/timeline.ts');
+  const base = { fit: 'cover' as const, focusX: 0.5, focusY: 0.5, scale: 1 };
+  const motion = [{ t: 0, scale: 1 }, { t: 2, scale: 1.5, ease: 'linear' as const }];
+  assert.equal(motionAt(base, motion, 0).scale, 1);
+  assert.ok(Math.abs(motionAt(base, motion, 1).scale - 1.25) < 1e-6);
+  assert.equal(motionAt(base, motion, 3).scale, 1.5);
+  assert.equal(motionAt(base, motion, 1).focusX, 0.5);
+});
+
+test('keyframe upsert replaces the one at the same frame and keeps order', async () => {
+  const { upsertKeyframe, removeKeyframe, motionPreset } = await import('../shared/ops.ts');
+  let list = upsertKeyframe([{ t: 1, scale: 1.2 }], { t: 0, scale: 1 }, 30);
+  assert.deepEqual(list.map((k) => k.t), [0, 1]);
+  list = upsertKeyframe(list, { t: 1.01, scale: 1.4 }, 30);
+  assert.equal(list.length, 2);
+  assert.equal(list[1].scale, 1.4);
+  assert.equal(removeKeyframe(list, 1.01, 30)?.length, 1);
+  const push = motionPreset(undefined, 4, 'push-in', 0.2);
+  assert.equal(push[1].t, 4);
+  assert.ok(Math.abs((push[1].scale ?? 0) - 1.2) < 1e-9);
+});

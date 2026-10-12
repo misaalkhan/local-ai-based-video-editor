@@ -147,7 +147,7 @@ function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: 
   if (!img || alpha <= 0.001) return !!img;
   const size = o.provider.mediaSize(ref.clip.mediaId);
   if (!size || !size.width || !size.height) return false;
-  const framing = framingAt(ref.clip.framing, o.provider.face?.(ref.clip.mediaId), ref.sourceTime);
+  const framing = framingAt(ref.clip.framing, o.provider.face?.(ref.clip.mediaId), ref.sourceTime, ref.clip.motion, env.t - ref.clipStart);
   const { src, dst } = layerGeometry(size.width, size.height, W, H, framing);
   const toImage = (r: Rect): Rect => ({
     x: (r.x - img.region.x) * img.k,
@@ -403,7 +403,7 @@ function drawOverlay(env: Env, ref: VisualRef): void {
   }
   if (ref.radius) {
     const size = o.provider.mediaSize(ref.clip.mediaId);
-    const framing = framingAt(ref.clip.framing, undefined, ref.sourceTime);
+    const framing = framingAt(ref.clip.framing, undefined, ref.sourceTime, ref.clip.motion, env.t - ref.clipStart);
     const dst = size ? layerGeometry(size.width, size.height, W, H, framing).dst : { x: 0, y: 0, w: W, h: H };
     roundRect(ctx, dst.x, dst.y, dst.w, dst.h, ref.radius * dst.w);
     ctx.clip();

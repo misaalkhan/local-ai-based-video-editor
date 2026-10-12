@@ -29,9 +29,12 @@ import type {
   Transition,
   Word,
   ZoomItem,
+  MotionKeyframe,
+  Keyframe,
 } from './types.ts';
 import { ASPECTS } from './types.ts';
 import {
+  DEFAULT_FRAMING,
   EPS,
   clamp,
   contentDuration,
@@ -815,6 +818,68 @@ export function updateClip(
 }
 
 /** `props` in the patch are merged into the existing ones rather than replacing them. */
+// ---------------------------------------------------------------------------
+// Keyframes: motion (framing) on clips, transform on overlays and graphics.
+
+/** Add or replace the keyframe at `t` (within a frame) in a list, keeping it sorted. */
+export function upsertKeyframe<K extends { t: number }>(list: K[] | undefined, kf: K, fps: number): K[] {
+  const tol = 0.5 / fps;
+  const out = (list ?? []).filter((k) => Math.abs(k.t - kf.t) > tol);
+  const same = (list ?? []).find((k) => Math.abs(k.t - kf.t) <= tol);
+  out.push({ ...(same ?? {}), ...kf, t: kf.t } as K);
+  out.sort((a, b) => a.t - b.t);
+  return out;
+}
+
+export function removeKeyframe<K extends { t: number }>(list: K[] | undefined, t: number, fps: number): K[] | undefined {
+  const out = (list ?? []).filter((k) => Math.abs(k.t - t) > 0.5 / fps);
+  return out.length ? out : undefined;
+}
+
+/** Set the whole motion of a clip (framing keyframes), or clear it. */
+export function setMotion(doc: ProjectDoc, kind: 'main' | 'overlay', id: ID, motion: MotionKeyframe[] | undefined): ProjectDoc {
+  const d = cloneDoc(doc);
+  const clip = kind === 'main' ? d.main.find((c) => c.id === id && c.kind === 'media') : d.overlays.find((o) => o.id === id);
+  if (!clip) return doc;
+  const list = motion?.filter((k) => Number.isFinite(k.t)).sort((a, b) => a.t - b.t);
+  (clip as SourceClip).motion = list && list.length ? list : undefined;
+  return d;
+}
+
+/** Set the whole transform animation of an overlay or graphic, or clear it. */
+export function setKeyframes(doc: ProjectDoc, kind: 'overlay' | 'graphic', id: ID, keyframes: Keyframe[] | undefined): ProjectDoc {
+  const d = cloneDoc(doc);
+  const item = kind === 'overlay' ? d.overlays.find((o) => o.id === id) : d.graphics.find((g) => g.id === id);
+  if (!item) return doc;
+  const list = keyframes?.filter((k) => Number.isFinite(k.t)).sort((a, b) => a.t - b.t);
+  item.keyframes = list && list.length ? list : undefined;
+  return d;
+}
+
+/** Ready-made motions over a clip's life: two keyframes from the current framing. */
+export function motionPreset(framing: Framing | undefined, length: number, preset: 'push-in' | 'pull-out' | 'pan-left' | 'pan-right' | 'drift' | 'tilt-up' | 'tilt-down', amount = 0.2): MotionKeyframe[] {
+  const f = { ...DEFAULT_FRAMING, ...(framing ?? {}) };
+  const end = Math.max(0.2, length);
+  const z = Math.max(1, f.scale);
+  switch (preset) {
+    case 'push-in':
+      return [{ t: 0, scale: z }, { t: end, scale: z * (1 + amount), ease: 'inout' }];
+    case 'pull-out':
+      return [{ t: 0, scale: z * (1 + amount) }, { t: end, scale: z, ease: 'inout' }];
+    case 'pan-left':
+      return [{ t: 0, scale: Math.max(z, 1.15), focusX: Math.min(1, f.focusX + amount) }, { t: end, scale: Math.max(z, 1.15), focusX: Math.max(0, f.focusX - amount), ease: 'linear' }];
+    case 'pan-right':
+      return [{ t: 0, scale: Math.max(z, 1.15), focusX: Math.max(0, f.focusX - amount) }, { t: end, scale: Math.max(z, 1.15), focusX: Math.min(1, f.focusX + amount), ease: 'linear' }];
+    case 'tilt-up':
+      return [{ t: 0, scale: Math.max(z, 1.15), focusY: Math.min(1, f.focusY + amount) }, { t: end, scale: Math.max(z, 1.15), focusY: Math.max(0, f.focusY - amount), ease: 'linear' }];
+    case 'tilt-down':
+      return [{ t: 0, scale: Math.max(z, 1.15), focusY: Math.max(0, f.focusY - amount) }, { t: end, scale: Math.max(z, 1.15), focusY: Math.min(1, f.focusY + amount), ease: 'linear' }];
+    case 'drift':
+      // Ken Burns: a slow zoom with a gentle sideways move.
+      return [{ t: 0, scale: z, focusX: Math.max(0, f.focusX - amount / 3) }, { t: end, scale: z * (1 + amount), focusX: Math.min(1, f.focusX + amount / 3), ease: 'inout' }];
+  }
+}
+
 export function updateGraphic(doc: ProjectDoc, id: ID, patch: Partial<GraphicItem>): ProjectDoc {
   const d = cloneDoc(doc);
   const i = d.graphics.findIndex((t) => t.id === id);

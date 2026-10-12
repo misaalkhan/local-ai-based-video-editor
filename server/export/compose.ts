@@ -70,18 +70,21 @@ export function planLayer(
   const faces = clip.framing?.track ? getFaces(p, media.id) : undefined;
   const times: number[] = [clip.in];
   if (faces) for (let t = clip.in; t < clip.out; t += Math.max(1 / fps, faces.interval / 2)) times.push(t);
+  // Motion keyframes move the crop too: sample the clip's life so the decoded region covers every position.
+  if (clip.motion?.length) for (let t = clip.in; t < clip.out; t += Math.max(1 / fps, 0.1)) times.push(t);
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
-  let density = 1;
+  let density = 0;
   for (const t of times) {
-    const g = layerGeometry(media.width, media.height, W, H, framingAt(clip.framing, faces, t));
+    const g = layerGeometry(media.width, media.height, W, H, framingAt(clip.framing, faces, t, clip.motion, (t - clip.in) / clip.speed));
     x0 = Math.min(x0, g.src.x);
     y0 = Math.min(y0, g.src.y);
     x1 = Math.max(x1, g.src.x + g.src.w);
     y1 = Math.max(y1, g.src.y + g.src.h);
-    density = g.dst.w / g.src.w;
+    // The tightest crop over the clip's life decides how much resolution to keep.
+    density = Math.max(density, g.dst.w / g.src.w);
   }
   const region: Rect = {
     x: Math.max(0, Math.floor(x0)),

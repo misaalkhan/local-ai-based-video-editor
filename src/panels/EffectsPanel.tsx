@@ -1,9 +1,10 @@
-import type { ClipFx, Framing, MediaMainClip, OverlayClip } from '../../shared/types.ts';
-import { addZoom, updateClip } from '../../shared/ops.ts';
+import type { ClipFx, Framing, MediaMainClip, MotionKeyframe, OverlayClip } from '../../shared/types.ts';
+import { addZoom, setMotion, updateClip, upsertKeyframe } from '../../shared/ops.ts';
 import { player } from '../engine/player.ts';
-import { DEFAULT_FRAMING } from '../../shared/timeline.ts';
+import { usePlayerTime } from '../hooks.ts';
+import { DEFAULT_FRAMING, framingAt } from '../../shared/timeline.ts';
 import { LOOKS } from '../../shared/draw.ts';
-import { useDoc, useStore } from '../store.ts';
+import { useDerived, useDoc, useStore } from '../store.ts';
 import { addZoomAtPlayhead, commit, edit, live, mediaDur, runTool } from '../actions.ts';
 import { Button, Field, Section, Segmented, Slider, Toggle } from '../ui.tsx';
 import { CurveEditor, HslControls, LightAndColour, LutControls } from './ColorControls.tsx';
@@ -22,13 +23,33 @@ export function EffectsPanel() {
         ? doc.overlays.find((c) => c.id === selection!.id)
         : undefined;
   const m = clip ? media[clip.mediaId] : undefined;
-  const framing: Framing = { ...DEFAULT_FRAMING, ...(clip?.framing ?? {}) };
+  const derived = useDerived();
+  const fps = doc.settings.fps;
+  const clipStart = kind === 'overlay' ? (clip as OverlayClip).start : (derived?.layout.find((seg) => seg.clip.id === clip?.id)?.start ?? 0);
+  const time = usePlayerTime();
+  const local = clip ? Math.max(0, time - clipStart) : 0;
+  // With motion keyframes, the framing shown and edited is the one at the playhead.
+  const animated = !!clip?.motion?.length;
+  const framing: Framing = animated ? framingAt(clip!.framing, undefined, 0, clip!.motion, local) : { ...DEFAULT_FRAMING, ...(clip?.framing ?? {}) };
   const fx: ClipFx = clip?.fx ?? {};
   const md = clip ? mediaDur(clip.mediaId) : undefined;
 
   const setFraming = (patch: Partial<Framing>, label?: string) => {
     if (!clip || !kind) return;
-    const next = { ...framing, ...patch };
+    const motionKeys = ['scale', 'focusX', 'focusY'] as const;
+    if (animated && motionKeys.some((k) => patch[k] !== undefined)) {
+      // Auto-key: the change lands on the keyframe at the playhead (made if there is none).
+      const kf: MotionKeyframe = { t: Math.round(local * fps) / fps };
+      for (const k of motionKeys) kf[k] = patch[k] ?? framing[k];
+      const next = upsertKeyframe(clip.motion, kf, fps);
+      if (label) edit((d) => setMotion(d, kind, clip.id, next), label);
+      else live((d) => setMotion(d, kind, clip.id, next));
+      const rest = { ...patch };
+      for (const k of motionKeys) delete rest[k];
+      if (!Object.keys(rest).length) return;
+      patch = rest;
+    }
+    const next = { ...(animated ? { ...DEFAULT_FRAMING, ...(clip.framing ?? {}) } : framing), ...patch };
     if (label) edit((d) => updateClip(d, kind, clip.id, { framing: next }, md), label);
     else live((d) => updateClip(d, kind, clip.id, { framing: next }, md));
   };
@@ -72,6 +93,7 @@ export function EffectsPanel() {
         ) : (
           <>
             <Section title="Framing">
+              {animated && <div className="hint">This clip has motion keyframes: the zoom and focus here are the ones at the playhead, and a change lands on that keyframe.</div>}
               <Field label="Fit">
                 <Segmented
                   value={framing.fit}

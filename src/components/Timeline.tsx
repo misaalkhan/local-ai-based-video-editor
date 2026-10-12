@@ -39,6 +39,8 @@ interface Item {
   muted?: boolean;
   color?: string;
   transition?: boolean;
+  /** Keyframe times, seconds after the item starts. */
+  keys?: number[];
 }
 
 interface Row {
@@ -72,7 +74,7 @@ function buildRows(doc: ProjectDoc, d: NonNullable<ReturnType<typeof useDerived>
   const name = (id: ID, fallback?: string) => fallback || media[id]?.name || 'Missing file';
 
   const graphics = pack(
-    doc.graphics.map((g) => ({ kind: 'graphic' as const, id: g.id, start: g.start, end: g.start + g.duration, label: graphicLabel(g), tone: g.template === 'text' ? 'text' : 'graphic' })),
+    doc.graphics.map((g) => ({ kind: 'graphic' as const, id: g.id, start: g.start, end: g.start + g.duration, label: graphicLabel(g), tone: g.template === 'text' ? 'text' : 'graphic', keys: g.keyframes?.map((k) => k.t) })),
   );
   graphics.reverse().forEach((items, i, all) => rows.push({ key: `g${i}`, kind: 'graphic', label: all.length > 1 ? `Graphic ${all.length - i}` : 'Graphic', icon: 'layers', items }));
 
@@ -89,6 +91,7 @@ function buildRows(doc: ProjectDoc, d: NonNullable<ReturnType<typeof useDerived>
   const overlays = pack(
     doc.overlays.map((o) => ({
       kind: 'overlay' as const, id: o.id, start: o.start, end: o.start + srcDuration(o), label: name(o.mediaId, o.name), tone: 'overlay',
+      keys: [...(o.keyframes ?? []).map((k) => k.t), ...(o.motion ?? []).map((k) => k.t)],
       mediaId: o.mediaId, inT: o.in, speed: o.speed, volume: o.volume, muted: o.muted,
     })),
   );
@@ -114,6 +117,7 @@ function buildRows(doc: ProjectDoc, d: NonNullable<ReturnType<typeof useDerived>
             kind: 'main' as const, id: seg.clip.id, start: seg.start, end: seg.end, label: name(seg.clip.mediaId, seg.clip.name), tone: 'main',
             mediaId: seg.clip.mediaId, inT: seg.clip.in, speed: seg.clip.speed, volume: seg.clip.volume, muted: seg.clip.muted,
             transition: !!seg.clip.transition && seg.index > 0,
+            keys: seg.clip.motion?.map((k) => k.t),
           },
     ),
   });
@@ -506,6 +510,9 @@ export function Timeline() {
           <ClipArt projectId={projectId} media={m} item={item} x={x + LABEL_W} width={w} height={h} pps={pps} view={view} mode={m.kind === 'video' ? 'film' : 'wave'} />
         )}
         {item.transition && <span className="tl-transition" title="Transition"><Icon name="transition" size={11} /></span>}
+        {item.keys?.map((t, i) => (
+          <span key={i} className="tl-key" style={{ left: Math.min(w - 4, Math.max(2, t * pps)) }} title={`Keyframe at ${t.toFixed(2)} s`} />
+        ))}
         <span className="tl-item-label">
           {item.muted && <Icon name="mute" size={11} />}
           {item.speed !== undefined && item.speed !== 1 && <b>{item.speed.toFixed(2).replace(/0$/, '')}×</b>}

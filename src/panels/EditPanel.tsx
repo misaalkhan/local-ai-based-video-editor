@@ -1,10 +1,15 @@
 // Properties of whatever is selected on the timeline.
 
-import type { AnimKind, AudioClip, GraphicItem, GraphicTemplate, MainClip, OverlayClip, SourceClip, ZoomItem } from '../../shared/types.ts';
+import type { AnimKind, AudioClip, Ease, GraphicItem, GraphicTemplate, Keyframe, MainClip, MotionKeyframe, OverlayClip, SourceClip, ZoomItem } from '../../shared/types.ts';
+import { player } from '../engine/player.ts';
+import { usePlayerTime } from '../hooks.ts';
+import { framingAt } from '../../shared/timeline.ts';
+import { transformAt } from '../../shared/graphics.ts';
 import * as ops from '../../shared/ops.ts';
 import { FONT_FAMILIES, FONT_NOTES, nearestWeight, weightsOf } from '../../shared/fonts.ts';
 import { defaultColor } from '../../shared/graphics.ts';
 import { formatTime, srcDuration } from '../../shared/timeline.ts';
+import { Icon } from '../icons.tsx';
 import { setUi, useDerived, useDoc, useStore } from '../store.ts';
 import { commit, deleteSelection, duplicateSelection, edit, live, mediaDur } from '../actions.ts';
 import { Button, ColorInput, Empty, Field, Section, Segmented, Select, Slider, TextInput, Toggle } from '../ui.tsx';
@@ -103,6 +108,115 @@ function Footer() {
       <Button size="sm" icon="copy" onClick={duplicateSelection}>Duplicate</Button>
       <Button size="sm" icon="trash" variant="danger" onClick={deleteSelection}>Delete</Button>
     </div>
+  );
+}
+
+const EASES: { value: Ease; label: string }[] = [
+  { value: 'inout', label: 'Smooth' },
+  { value: 'linear', label: 'Steady' },
+  { value: 'in', label: 'Speed up' },
+  { value: 'out', label: 'Slow down' },
+  { value: 'back', label: 'Overshoot' },
+];
+
+/** Keyframes of the picture's framing inside a main or b-roll clip. */
+function MotionEditor({ kind, clip, start }: { kind: 'main' | 'overlay'; clip: SourceClip; start: number }) {
+  const doc = useDoc()!;
+  const fps = doc.settings.fps;
+  const length = srcDuration(clip);
+  const motion = clip.motion ?? [];
+  const time = usePlayerTime();
+  const local = Math.max(0, Math.min(length, time - start));
+  const here = motion.find((k) => Math.abs(k.t - local) <= 0.5 / fps);
+  const write = (list: MotionKeyframe[] | undefined, label: string) => edit((d) => ops.setMotion(d, kind, clip.id, list), label);
+  const addHere = () => {
+    const f = framingAt(clip.framing, undefined, 0, motion, local);
+    write(ops.upsertKeyframe(motion, { t: Math.round(local * fps) / fps, scale: f.scale, focusX: f.focusX, focusY: f.focusY }, fps), 'Add keyframe');
+  };
+  const preset = (name: Parameters<typeof ops.motionPreset>[2]) => write(ops.motionPreset(clip.framing, length, name), name);
+  return (
+    <Section title="Motion" action={motion.length ? <Button size="sm" variant="ghost" onClick={() => write(undefined, 'Clear motion')}>Clear</Button> : undefined}>
+      <div className="row wrap">
+        <Button size="sm" onClick={() => preset('push-in')}>Push in</Button>
+        <Button size="sm" onClick={() => preset('pull-out')}>Pull out</Button>
+        <Button size="sm" onClick={() => preset('pan-right')}>Pan</Button>
+        <Button size="sm" onClick={() => preset('drift')}>Ken Burns</Button>
+      </div>
+      <div className="row">
+        <Button size="sm" icon="plus" onClick={addHere}>
+          {here ? 'Update keyframe here' : 'Add keyframe at playhead'}
+        </Button>
+      </div>
+      {motion.length > 0 && (
+        <div className="keyframes">
+          {motion.map((k) => (
+            <div key={k.t} className={`keyframe ${here === k ? 'on' : ''}`}>
+              <button type="button" className="keyframe-time" onClick={() => player.seek(start + k.t)} title="Go to this keyframe">
+                <Icon name="target" size={11} /> {k.t.toFixed(2)} s
+              </button>
+              <span className="keyframe-values">
+                {k.scale !== undefined && `${Math.round(k.scale * 100)}%`} {k.focusX !== undefined && `x ${Math.round(k.focusX * 100)}`} {k.focusY !== undefined && `y ${Math.round(k.focusY * 100)}`}
+              </span>
+              <Select value={k.ease ?? 'inout'} options={EASES} onChange={(v) => write(ops.upsertKeyframe(motion, { ...k, ease: v }, fps), 'Keyframe easing')} />
+              <button type="button" className="icon-btn" onClick={() => write(ops.removeKeyframe(motion, k.t, fps), 'Remove keyframe')} title="Remove keyframe" aria-label="Remove keyframe">
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="hint">Keyframes hold the zoom and the focus point of the picture at a moment; the framing on the Effects tab moves between them. Set the framing where the playhead is, then add a keyframe there.</div>
+    </Section>
+  );
+}
+
+/** Keyframes of placement (position, size, rotation, opacity) on a graphic or picture-in-picture clip. */
+function PlacementKeyframes({ kind, id, start, length, keyframes, base }: { kind: 'overlay' | 'graphic'; id: string; start: number; length: number; keyframes: Keyframe[] | undefined; base: { x: number; y: number; scale: number; rotation: number; opacity: number } }) {
+  const doc = useDoc()!;
+  const fps = doc.settings.fps;
+  const list = keyframes ?? [];
+  const time = usePlayerTime();
+  const local = Math.max(0, Math.min(length, time - start));
+  const here = list.find((k) => Math.abs(k.t - local) <= 0.5 / fps);
+  const write = (next: Keyframe[] | undefined, label: string) => edit((d) => ops.setKeyframes(d, kind, id, next), label);
+  const addHere = () => {
+    const tr = transformAt(base, list, local);
+    write(ops.upsertKeyframe(list, { t: Math.round(local * fps) / fps, ...tr }, fps), 'Add keyframe');
+  };
+  const fly = (from: Partial<Keyframe>) => write([{ t: 0, ...base, ...from, ease: 'out' }, { t: Math.min(0.6, length / 2), ...base }], 'Fly in');
+  return (
+    <Section title="Keyframes" action={list.length ? <Button size="sm" variant="ghost" onClick={() => write(undefined, 'Clear keyframes')}>Clear</Button> : undefined}>
+      <div className="row wrap">
+        <Button size="sm" onClick={() => fly({ x: -0.3 })}>From left</Button>
+        <Button size="sm" onClick={() => fly({ x: 1.3 })}>From right</Button>
+        <Button size="sm" onClick={() => fly({ y: 1.3 })}>From below</Button>
+        <Button size="sm" onClick={() => fly({ scale: 0.01, opacity: 0 })}>Grow in</Button>
+      </div>
+      <div className="row">
+        <Button size="sm" icon="plus" onClick={addHere}>
+          {here ? 'Update keyframe here' : 'Add keyframe at playhead'}
+        </Button>
+      </div>
+      {list.length > 0 && (
+        <div className="keyframes">
+          {list.map((k) => (
+            <div key={k.t} className={`keyframe ${here === k ? 'on' : ''}`}>
+              <button type="button" className="keyframe-time" onClick={() => player.seek(start + k.t)} title="Go to this keyframe">
+                <Icon name="target" size={11} /> {k.t.toFixed(2)} s
+              </button>
+              <span className="keyframe-values">
+                {k.x !== undefined && `x ${Math.round(k.x * 100)}`} {k.y !== undefined && `y ${Math.round(k.y * 100)}`} {k.scale !== undefined && `${Math.round(k.scale * 100)}%`} {k.rotation !== undefined && k.rotation !== 0 && `${Math.round(k.rotation)}°`} {k.opacity !== undefined && k.opacity !== 1 && `α ${Math.round(k.opacity * 100)}`}
+              </span>
+              <Select value={k.ease ?? 'inout'} options={EASES} onChange={(v) => write(ops.upsertKeyframe(list, { ...k, ease: v }, fps), 'Keyframe easing')} />
+              <button type="button" className="icon-btn" onClick={() => write(ops.removeKeyframe(list, k.t, fps), 'Remove keyframe')} title="Remove keyframe" aria-label="Remove keyframe">
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="hint">A keyframe holds the placement at a moment; the item moves between keyframes. Place it with the sliders above where the playhead is, then add a keyframe there.</div>
+    </Section>
   );
 }
 
@@ -206,6 +320,7 @@ function GraphicEditor({ g }: { g: GraphicItem }) {
           </Field>
         </Section>
       )}
+      <PlacementKeyframes kind="graphic" id={g.id} start={g.start} length={g.duration} keyframes={g.keyframes} base={{ x: g.x, y: g.y, scale: g.scale, rotation: g.rotation, opacity: g.opacity }} />
       <Section title="Timing">
         <Field label="On screen for">
           <Slider value={g.duration} min={0.3} max={20} step={0.1} onChange={(v) => set({ duration: v })} onCommit={done('Duration')} format={(v) => `${v.toFixed(1)} s`} />
@@ -262,6 +377,8 @@ function ClipEditor({ kind, clip }: { kind: 'main' | 'overlay' | 'audio'; clip: 
   const set = (patch: Partial<OverlayClip & AudioClip>) => live((d) => ops.updateClip(d, kind, clip.id, patch, md));
   const now = (patch: Partial<OverlayClip & AudioClip>, label: string) => edit((d) => ops.updateClip(d, kind, clip.id, patch, md), label);
   const done = (label: string) => () => commit(label);
+  const derived = useDerived();
+  const clipStart = kind === 'overlay' ? (clip as OverlayClip).start : (derived?.layout.find((seg) => seg.clip.id === clip.id)?.start ?? 0);
   const o = clip as OverlayClip;
   const a = clip as AudioClip;
   const tr = { x: 0.5, y: 0.5, scale: 1, rotation: 0, opacity: 1, ...(o.transform ?? {}) };
@@ -332,6 +449,8 @@ function ClipEditor({ kind, clip }: { kind: 'main' | 'overlay' | 'audio'; clip: 
           </Field>
         </Section>
       )}
+      {kind === 'overlay' && <PlacementKeyframes kind="overlay" id={clip.id} start={o.start} length={srcDuration(clip)} keyframes={o.keyframes} base={{ x: tr.x, y: tr.y, scale: tr.scale, rotation: tr.rotation, opacity: o.opacity ?? 1 }} />}
+      {kind !== 'audio' && <MotionEditor kind={kind} clip={clip} start={clipStart} />}
       {kind !== 'audio' && (
         <Button size="sm" icon="sliders" onClick={() => setUi({ left: 'effects' })}>
           Framing and colour

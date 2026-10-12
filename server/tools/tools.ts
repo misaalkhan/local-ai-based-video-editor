@@ -939,12 +939,12 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
   },
   {
     name: 'add_keyframes',
-    description: 'Animate a graphic or a picture-in-picture clip over its life. Each keyframe gives a time t (seconds after the item starts) and any of x, y, scale, rotation, opacity; values are interpolated between keyframes. Replaces the item\'s existing keyframes.',
+    description: 'Animate an item over its life. For a graphic or a picture-in-picture clip, each keyframe gives a time t (seconds after the item starts) and any of x, y, scale, rotation, opacity (its placement). For the picture inside a main or b-roll clip, give zoom (framing scale, 1 = none), focus_x and focus_y (0-1, the point kept centred): a slow push-in, a pan, a Ken Burns drift on a photo. Values ease between keyframes (ease: linear, in, out, inout, back). Replaces the item\'s existing keyframes of that kind. For the common moves, add_motion is quicker.',
     schema: obj({
-      item_id: S('A graphic or b-roll clip id.'),
+      item_id: S('A graphic, b-roll or main clip id.'),
       keyframes: {
         type: 'array',
-        items: { type: 'object', properties: { t: { type: 'number' }, x: { type: 'number' }, y: { type: 'number' }, scale: { type: 'number' }, rotation: { type: 'number' }, opacity: { type: 'number' }, ease: { type: 'string', enum: ['linear', 'in', 'out', 'inout', 'back'] } }, required: ['t'] },
+        items: { type: 'object', properties: { t: { type: 'number' }, x: { type: 'number' }, y: { type: 'number' }, scale: { type: 'number' }, rotation: { type: 'number' }, opacity: { type: 'number' }, zoom: { type: 'number' }, focus_x: { type: 'number' }, focus_y: { type: 'number' }, ease: { type: 'string', enum: ['linear', 'in', 'out', 'inout', 'back'] } }, required: ['t'] },
         description: 'At least two keyframes.',
       },
     }, ['item_id', 'keyframes']),
@@ -952,20 +952,53 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
     run: (ctx, a) => {
       const v = view(ctx.p);
       const it = findItem(v, a.item_id);
-      if (it.kind !== 'graphic' && it.kind !== 'overlay') bad('Keyframes apply to graphics and b-roll clips.');
-      const kfs = (Array.isArray(a.keyframes) ? a.keyframes : []).map((k) => {
-        const o = k as Record<string, unknown>;
+      if (it.kind !== 'graphic' && it.kind !== 'overlay' && it.kind !== 'main') bad('Keyframes apply to graphics, b-roll and main clips.');
+      const raw = (Array.isArray(a.keyframes) ? a.keyframes : []) as Record<string, unknown>[];
+      const motionKeys = raw.some((k) => k.zoom !== undefined || k.focus_x !== undefined || k.focus_y !== undefined);
+      if (raw.length < 2) bad('Give at least two keyframes.');
+      let d = v.doc;
+      if (motionKeys || it.kind === 'main') {
+        if (it.kind === 'graphic') bad('A graphic has no picture to zoom; use x, y, scale, rotation, opacity.');
+        const kfs = raw.map((o) => {
+          const out: Record<string, unknown> = { t: Math.max(0, num(o.t, 't')) };
+          if (o.zoom !== undefined) out.scale = clamp(num(o.zoom, 'zoom'), 1, 4);
+          if (o.focus_x !== undefined) out.focusX = clamp(num(o.focus_x, 'focus_x'), 0, 1);
+          if (o.focus_y !== undefined) out.focusY = clamp(num(o.focus_y, 'focus_y'), 0, 1);
+          if (typeof o.ease === 'string') out.ease = o.ease;
+          return out as { t: number };
+        });
+        d = ops.setMotion(d, it.kind as 'main' | 'overlay', it.id, kfs);
+        save(ctx, d, 'add_keyframes', `Moved the picture of ${it.id}`);
+        return { text: `Set ${kfs.length} motion keyframes on ${it.kind} clip ${it.id}.` };
+      }
+      const kfs = raw.map((o) => {
         const out: Record<string, unknown> = { t: Math.max(0, num(o.t, 't')) };
         for (const key of ['x', 'y', 'scale', 'rotation', 'opacity'] as const) if (o[key] !== undefined) out[key] = num(o[key], key);
         if (typeof o.ease === 'string') out.ease = o.ease;
         return out as { t: number };
       });
-      if (kfs.length < 2) bad('Give at least two keyframes.');
-      const d = ops.cloneDoc(v.doc);
-      if (it.kind === 'graphic') d.graphics.find((g) => g.id === it.id)!.keyframes = kfs;
-      else d.overlays.find((o) => o.id === it.id)!.keyframes = kfs;
+      d = ops.setKeyframes(d, it.kind as 'overlay' | 'graphic', it.id, kfs);
       save(ctx, d, 'add_keyframes', `Animated ${it.id}`);
       return { text: `Set ${kfs.length} keyframes on ${it.kind} ${it.id}.` };
+    },
+  },
+  {
+    name: 'add_motion',
+    description: 'Give the picture of a main or b-roll clip a slow move over its whole life: push-in (a slow zoom in, the classic for a line that matters), pull-out, pan-left, pan-right, tilt-up, tilt-down, drift (Ken Burns: zoom with a gentle sideways move, for photos). amount is how far it travels (0.1 subtle, 0.2 default, 0.4 strong). Use it on photos and b-roll so they are never static, and on a talking head only for one key line.',
+    schema: obj({ clip_id: S('A main or b-roll clip id.'), preset: S('The move.', ['push-in', 'pull-out', 'pan-left', 'pan-right', 'tilt-up', 'tilt-down', 'drift']), amount: N('0.05-0.6, default 0.2.') }, ['clip_id', 'preset']),
+    label: (a) => `Adding a ${str(a.preset)}`,
+    run: (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.clip_id);
+      if (it.kind !== 'main' && it.kind !== 'overlay') bad('Motion applies to main and b-roll clips.');
+      const clip = sourceClip(v.doc, it.kind, it.id);
+      if (!clip) bad('No such clip.');
+      const length = srcDuration(clip);
+      const preset = str(a.preset) as Parameters<typeof ops.motionPreset>[2];
+      const motion = ops.motionPreset(clip.framing, length, preset, clamp(optNum(a.amount, 'amount') ?? 0.2, 0.05, 0.6));
+      const d = ops.setMotion(v.doc, it.kind, it.id, motion);
+      save(ctx, d, 'add_motion', `${preset} on ${it.id}`);
+      return { text: `Added a ${preset} over ${sec(length)}s on ${it.kind} clip ${it.id}.` };
     },
   },
   {

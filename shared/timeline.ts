@@ -14,6 +14,8 @@ import type {
   SourceClip,
   Transform,
   TransitionType,
+  MotionKeyframe,
+  Ease,
 } from './types.ts';
 
 export const EPS = 1e-6;
@@ -140,8 +142,9 @@ export function faceAt(track: FaceTrack | undefined, t: number): { x: number; y:
 }
 
 /** The framing actually used at a moment: follows the face when tracking is on and a face is known. */
-export function framingAt(framing: Framing | undefined, track: FaceTrack | undefined, sourceTime: number): Framing {
-  const f = framing ?? DEFAULT_FRAMING;
+export function framingAt(framing: Framing | undefined, track: FaceTrack | undefined, sourceTime: number, motion?: MotionKeyframe[], local = 0): Framing {
+  let f = framing ?? DEFAULT_FRAMING;
+  if (motion?.length) f = motionAt(f, motion, local);
   if (!f.track) return f;
   const face = faceAt(track, sourceTime);
   if (!face) return f;
@@ -149,6 +152,46 @@ export function framingAt(framing: Framing | undefined, track: FaceTrack | undef
 }
 
 const easeInOut = (x: number) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
+const easeInCubic = (x: number) => x * x * x;
+const easeOutCubic = (x: number) => 1 - Math.pow(1 - x, 3);
+function eased(kind: Ease | undefined, x: number): number {
+  switch (kind) {
+    case 'linear':
+      return x;
+    case 'in':
+      return easeInCubic(x);
+    case 'out':
+      return easeOutCubic(x);
+    case 'back': {
+      const c1 = 1.70158;
+      const c3 = c1 + 1;
+      return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+    }
+    default:
+      return easeInOut(x);
+  }
+}
+
+/** The framing `local` seconds into a clip with motion keyframes: each value eases between the keyframes that set it. */
+export function motionAt(base: Framing, motion: MotionKeyframe[], local: number): Framing {
+  const out = { ...base };
+  for (const key of ['scale', 'focusX', 'focusY'] as const) {
+    let prev: MotionKeyframe | undefined;
+    let next: MotionKeyframe | undefined;
+    for (const k of motion) {
+      if (k[key] === undefined) continue;
+      if (k.t <= local) {
+        if (!prev || k.t >= prev.t) prev = k;
+      } else if (!next || k.t < next.t) next = k;
+    }
+    if (prev && next) {
+      const p = eased(next.ease, clamp((local - prev.t) / Math.max(1e-6, next.t - prev.t), 0, 1));
+      out[key] = (prev[key] as number) + ((next[key] as number) - (prev[key] as number)) * p;
+    } else if (prev) out[key] = prev[key] as number;
+    else if (next) out[key] = next[key] as number;
+  }
+  return out;
+}
 
 export interface ZoomState {
   scale: number;
@@ -263,7 +306,7 @@ function interpolate(base: Transform, keyframes: OverlayClip['keyframes'], t: nu
       } else if (!next || k.t < next.t) next = k;
     }
     if (prev && next) {
-      const p = easeInOut(clamp((t - prev.t) / Math.max(1e-6, next.t - prev.t), 0, 1));
+      const p = eased(next.ease, clamp((t - prev.t) / Math.max(1e-6, next.t - prev.t), 0, 1));
       out[key] = (prev[key] as number) + ((next[key] as number) - (prev[key] as number)) * p;
     } else if (prev) out[key] = prev[key] as number;
     else if (next) out[key] = next[key] as number;

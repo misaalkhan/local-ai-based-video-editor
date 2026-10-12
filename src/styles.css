@@ -2831,3 +2831,54 @@ input[type='range']::-webkit-slider-thumb {
   opacity: 1;
   border-color: #fff;
 }
+
+/* Keyframes */
+.tl-key {
+  position: absolute;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  margin-left: -3px;
+  background: #ffd166;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  transform: rotate(45deg);
+  pointer-events: none;
+  z-index: 2;
+}
+.keyframes {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0;
+}
+.keyframe {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.keyframe.on {
+  border-color: #ffd166;
+}
+.keyframe-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.keyframe-values {
+  flex: 1;
+  color: var(--text-2);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.keyframe .select {
+  max-width: 110px;
+}
