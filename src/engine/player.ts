@@ -6,6 +6,8 @@
 // other is already parked on the first frame of the next, so a jump cut is a
 // swap rather than a seek.
 
+import { parseCube } from '../../shared/color.ts';
+import type { Lut3D } from '../../shared/color.ts';
 import type { FaceTrack, ID, MediaAsset, ProjectDoc, SourceClip } from '../../shared/types.ts';
 import { renderFrame } from '../../shared/draw.ts';
 import type { FrameProvider, LayerImage } from '../../shared/draw.ts';
@@ -491,12 +493,29 @@ export class Player {
           const canvas = document.createElement('canvas');
           canvas.width = w;
           canvas.height = h;
-          s = { canvas, ctx: canvas.getContext('2d') as unknown as Ctx2D };
+          // Grades read the pixels back every frame, so keep this canvas on the CPU.
+          s = { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) as unknown as Ctx2D };
           this.scratch.set(key, s);
         }
         return s;
       },
+      lut: (name) => this.lutFor(name),
     };
+  }
+
+  /** LUTs by name: fetched once; the frame is redrawn when one arrives. */
+  private luts = new Map<string, Lut3D | null>();
+  private lutFor(name: string): Lut3D | null | undefined {
+    if (this.luts.has(name)) return this.luts.get(name);
+    this.luts.set(name, null);
+    fetch(`/api/library/luts/${encodeURIComponent(name)}/file`)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+      .then((text) => {
+        this.luts.set(name, parseCube(text));
+        this.invalidate();
+      })
+      .catch(() => this.luts.set(name, null));
+    return undefined;
   }
 
   /** Whether every video frame the current moment needs has arrived. */

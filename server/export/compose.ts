@@ -6,6 +6,7 @@
 // silences) are read by a single decoder that skips the gaps, rather than one
 // ffmpeg process per clip.
 
+import { readLut } from '../library.ts';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import path from 'node:path';
@@ -419,6 +420,7 @@ export class Compositor {
         const img = this.images.get(id);
         return img ? { image: img, width: img.width, height: img.height } : undefined;
       },
+      lut: (name) => readLut(name),
       scratch: (w, h) => {
         const key = `${w}x${h}`;
         let s = this.scratch.get(key);

@@ -67,6 +67,30 @@ export interface ClipFx {
   letterbox?: number;
   /** Mirror the picture left to right. */
   flip?: boolean;
+  /** Stops of light, -2..2. */
+  exposure?: number;
+  /** -1..1: darken or lift the bright part of the picture. */
+  highlights?: number;
+  /** -1..1: darken or lift the dark part. */
+  shadows?: number;
+  /** -1..1: where white sits. */
+  whites?: number;
+  /** -1..1: where black sits. */
+  blacks?: number;
+  /** -1 (blue) to 1 (amber). */
+  temperature?: number;
+  /** -1 (green) to 1 (magenta). */
+  tint?: number;
+  /** -1..1: saturation that favours the muted colours. */
+  vibrance?: number;
+  /** Tone curves, points of (in, out) in 0..1, for all channels and each one. */
+  curves?: { rgb?: [number, number][]; r?: [number, number][]; g?: [number, number][]; b?: [number, number][] };
+  /** Hue, saturation and luminance shifts by hue range (-1..1 each). */
+  hsl?: Partial<Record<'red' | 'orange' | 'yellow' | 'green' | 'aqua' | 'blue' | 'purple' | 'magenta', { hue?: number; sat?: number; lum?: number }>>;
+  /** Name of a .cube LUT in the library's luts folder. */
+  lut?: string;
+  /** 0..1 strength of the LUT, default 1. */
+  lutAmount?: number;
 }
 
 export type TransitionType = 'fade' | 'dip' | 'flash' | 'slide-left' | 'slide-right' | 'slide-up' | 'whip' | 'zoom' | 'blur' | 'glitch';

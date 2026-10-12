@@ -6,6 +6,7 @@ import { LOOKS } from '../../shared/draw.ts';
 import { useDoc, useStore } from '../store.ts';
 import { addZoomAtPlayhead, commit, edit, live, mediaDur, runTool } from '../actions.ts';
 import { Button, Field, Section, Segmented, Slider, Toggle } from '../ui.tsx';
+import { CurveEditor, HslControls, LightAndColour, LutControls } from './ColorControls.tsx';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 
@@ -35,6 +36,11 @@ export function EffectsPanel() {
     if (!clip || !kind) return;
     live((d) => updateClip(d, kind, clip.id, { fx: { ...fx, ...patch } }, md));
   };
+  const setFxNow = (patch: Partial<ClipFx>, label: string) => {
+    if (!clip || !kind) return;
+    edit((d) => updateClip(d, kind, clip.id, { fx: { ...fx, ...patch } }, md), label);
+  };
+  const colour = { fx, set: setFx, commit, now: setFxNow };
 
   return (
     <div className="panel">
@@ -124,6 +130,7 @@ export function EffectsPanel() {
               <Field label="Blur">
                 <Slider value={fx.blur ?? 0} min={0} max={0.03} step={0.0005} onChange={(v) => setFx({ blur: v })} onCommit={() => commit('Blur')} format={(v) => `${Math.round((v / 0.03) * 100)}%`} />
               </Field>
+              <LightAndColour {...colour} />
               <Field label="Warmth" hint="cool to warm">
                 <Slider value={fx.warmth ?? 0} min={-1} max={1} step={0.01} onChange={(v) => setFx({ warmth: v })} onCommit={() => commit('Warmth')} format={(v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`} />
               </Field>
@@ -140,6 +147,22 @@ export function EffectsPanel() {
                 <Slider value={fx.letterbox ?? 0} min={0} max={0.25} step={0.005} onChange={(v) => setFx({ letterbox: v })} onCommit={() => commit('Cinema bars')} format={pct} />
               </Field>
               <Toggle checked={!!fx.flip} onChange={(v) => edit((d) => updateClip(d, kind!, clip.id, { fx: { ...fx, flip: v || undefined } }, md), v ? 'Mirror' : 'Unmirror')} label="Mirror left to right" />
+            </Section>
+            <Section title="Curves">
+              <CurveEditor {...colour} />
+            </Section>
+            <Section title="Colour by hue (HSL)">
+              <HslControls {...colour} />
+            </Section>
+            <Section title="LUT">
+              <LutControls {...colour} />
+            </Section>
+            <Section title="Apply to every clip">
+              <div className="row">
+                <Button size="sm" onClick={() => void runTool('set_clip_look', { clip_id: 'all', copy_from: clip.id })}>
+                  Copy this grade to all main clips
+                </Button>
+              </div>
             </Section>
           </>
         )}

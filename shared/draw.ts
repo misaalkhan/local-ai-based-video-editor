@@ -6,6 +6,8 @@
 import type { CaptionSettings, CaptionStyle, ClipFx, FaceTrack, ID, MainClip, ProjectDoc, Transform } from './types.ts';
 import type { CaptionCard } from './captions.ts';
 import { cardAt, displayWord } from './captions.ts';
+import { applyBaked, bakeGrade, needsGrade } from './color.ts';
+import type { Lut3D } from './color.ts';
 import type { MainSeg, Rect, Scene, VisualRef } from './timeline.ts';
 import { clamp, framingAt, layerGeometry, sceneAt } from './timeline.ts';
 import { fontString } from './fonts.ts';
@@ -33,6 +35,8 @@ export interface FrameProvider {
   image?(mediaId: ID): DrawableImage | undefined;
   /** A small offscreen canvas for effects, reused between frames. */
   scratch?(w: number, h: number): { canvas: unknown; ctx: Ctx2D } | undefined;
+  /** A 3D LUT from the library by name: null when missing, undefined while it loads. */
+  lut?(name: string): Lut3D | null | undefined;
 }
 
 export interface RenderOptions {
@@ -106,6 +110,37 @@ interface Env {
   t: number;
 }
 
+/**
+ * The colour grade that a CSS filter cannot do: draw the picture into a
+ * scratch canvas at output resolution, run the baked grade over its pixels,
+ * and hand the canvas back to be drawn in place of the picture.
+ */
+function gradeInto(env: Env, fx: ClipFx, img: LayerImage, s: Rect, dst: Rect, filter: string, flip: boolean): { canvas: unknown; w: number; h: number } | null {
+  const { o } = env;
+  const w = Math.max(1, Math.round(dst.w * o.pixelScale));
+  const h = Math.max(1, Math.round(dst.h * o.pixelScale));
+  const sc = o.provider.scratch?.(w, h);
+  if (!sc) return null;
+  const c = sc.ctx as Ctx2D & { getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray }; putImageData(d: unknown, x: number, y: number): void };
+  if (typeof c.getImageData !== 'function' || typeof c.putImageData !== 'function') return null;
+  c.save();
+  c.globalAlpha = 1;
+  c.globalCompositeOperation = 'copy';
+  if (filter && 'filter' in c) c.filter = filter;
+  if (flip) {
+    c.translate(w, 0);
+    c.scale(-1, 1);
+  }
+  c.drawImage(img.image, s.x, s.y, s.w, s.h, 0, 0, w, h);
+  c.restore();
+  if ('filter' in c) c.filter = 'none';
+  const lut = fx.lut ? o.provider.lut?.(fx.lut) : null;
+  const id = c.getImageData(0, 0, w, h);
+  applyBaked(id.data, bakeGrade(fx, lut ?? null));
+  c.putImageData(id, 0, 0);
+  return { canvas: sc.canvas, w, h };
+}
+
 /** Draw a media clip's picture into the frame. Returns false when the picture is not available. */
 function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: number): boolean {
   const { ctx, W, H, o } = env;
@@ -139,18 +174,23 @@ function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: 
   }
   const s = toImage(src);
   const filter = fxFilter(ref.clip.fx, W * o.pixelScale);
-  if (filter && 'filter' in ctx) ctx.filter = filter;
-  ctx.globalAlpha = alpha;
   const fx = ref.clip.fx;
-  if (fx?.flip) {
-    // Mirror within the picture's own area.
-    ctx.save();
-    ctx.translate(2 * dst.x + dst.w, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(img.image, s.x, s.y, s.w, s.h, dst.x, dst.y, dst.w, dst.h);
-    ctx.restore();
-  } else ctx.drawImage(img.image, s.x, s.y, s.w, s.h, dst.x, dst.y, dst.w, dst.h);
-  if (filter && 'filter' in ctx) ctx.filter = 'none';
+  ctx.globalAlpha = alpha;
+  const graded = fx && needsGrade(fx) ? gradeInto(env, fx, img, s, dst, filter, !!fx.flip) : null;
+  if (graded) {
+    ctx.drawImage(graded.canvas, 0, 0, graded.w, graded.h, dst.x, dst.y, dst.w, dst.h);
+  } else {
+    if (filter && 'filter' in ctx) ctx.filter = filter;
+    if (fx?.flip) {
+      // Mirror within the picture's own area.
+      ctx.save();
+      ctx.translate(2 * dst.x + dst.w, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img.image, s.x, s.y, s.w, s.h, dst.x, dst.y, dst.w, dst.h);
+      ctx.restore();
+    } else ctx.drawImage(img.image, s.x, s.y, s.w, s.h, dst.x, dst.y, dst.w, dst.h);
+    if (filter && 'filter' in ctx) ctx.filter = 'none';
+  }
   // Warmth tints the picture towards orange or blue; a vignette darkens the edges. Both are drawn over the clip's own area.
   if (fx?.warmth) {
     ctx.save();

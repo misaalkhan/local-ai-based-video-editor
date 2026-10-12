@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './config.ts';
 import { AUDIO_EXT, IMAGE_EXT, VIDEO_EXT, extOf } from './probe.ts';
+import { parseCube } from '../shared/color.ts';
+import type { Lut3D } from '../shared/color.ts';
 
 export const LIBRARY_DIR = process.env.STUDIO_LIBRARY ?? path.join(ROOT, 'library');
 const BUILTIN_SFX = path.join(ROOT, 'assets', 'sfx');
@@ -225,6 +227,53 @@ export function searchSfx(query: string, limit = 5): SfxEntry[] {
     .map((x) => x.s);
 }
 
+// ---------------------------------------------------------------------------
+// LUTs: .cube files in library/luts, parsed once and kept.
+
+const LUT_DIR = () => path.join(LIBRARY_DIR, 'luts');
+const lutCache = new Map<string, Lut3D | null>();
+
+export function listLuts(): { name: string; file: string }[] {
+  return listDir(LUT_DIR(), ['cube']).map((f) => ({ name: path.basename(f, '.cube'), file: f }));
+}
+
+/** A LUT by name; null when there is no such file or it does not parse. */
+export function readLut(name: string): Lut3D | null {
+  const hit = lutCache.get(name);
+  if (hit !== undefined) return hit;
+  const file = path.join(LUT_DIR(), `${path.basename(name)}.cube`);
+  let lut: Lut3D | null = null;
+  try {
+    lut = parseCube(fs.readFileSync(file, 'utf8'));
+  } catch {
+    lut = null;
+  }
+  lutCache.set(name, lut);
+  return lut;
+}
+
+/** A free file path in the luts folder for a new .cube; clears the cache for that name. */
+export function lutPath(name: string): { name: string; file: string } {
+  fs.mkdirSync(LUT_DIR(), { recursive: true });
+  const base = path.basename(name).replace(/\.cube$/i, '').replace(/[^A-Za-z0-9 _.-]+/g, '').trim() || 'lut';
+  let n = base;
+  let file = path.join(LUT_DIR(), `${n}.cube`);
+  for (let i = 2; fs.existsSync(file); i++) {
+    n = `${base} ${i}`;
+    file = path.join(LUT_DIR(), `${n}.cube`);
+  }
+  lutCache.delete(n);
+  return { name: n, file };
+}
+
+export function removeLut(name: string): boolean {
+  const file = path.join(LUT_DIR(), `${path.basename(name)}.cube`);
+  if (!fs.existsSync(file)) return false;
+  fs.rmSync(file);
+  lutCache.delete(name);
+  return true;
+}
+
 export interface LibraryFile {
   name: string;
   file: string;
@@ -240,5 +289,5 @@ export function listLibrary(kind?: 'music' | 'broll'): LibraryFile[] {
 }
 
 export function ensureLibraryDirs(): void {
-  for (const d of ['sfx', 'sfx/mine', 'music', 'broll']) fs.mkdirSync(path.join(LIBRARY_DIR, d), { recursive: true });
+  for (const d of ['sfx', 'sfx/mine', 'music', 'broll', 'luts']) fs.mkdirSync(path.join(LIBRARY_DIR, d), { recursive: true });
 }

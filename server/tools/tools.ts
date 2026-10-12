@@ -18,7 +18,7 @@ import { getEnvelope, getFaces, getWords, patchMedia } from '../store.ts';
 import type { Project } from '../store.ts';
 import { importMedia } from '../media.ts';
 import { analyzeFaces, faceCoverage } from '../faces.ts';
-import { listLibrary, listSfx, searchSfx } from '../library.ts';
+import { listLibrary, listLuts, listSfx, readLut, searchSfx } from '../library.ts';
 import { listVoices, synthesize } from '../tts.ts';
 import { fetchGif, found as foundGifs, searchGifs } from '../gifs.ts';
 import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
@@ -261,12 +261,13 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_library',
     description: 'List what is available beyond this project: built-in and user sound effects, the user\'s music and b-roll library, voiceover voices and fonts.',
-    schema: obj({ kind: S('What to list.', ['sfx', 'music', 'broll', 'voices', 'fonts']) }, ['kind']),
+    schema: obj({ kind: S('What to list.', ['sfx', 'music', 'broll', 'voices', 'fonts', 'luts']) }, ['kind']),
     label: (a) => `Listing ${str(a.kind)}`,
     readOnly: true,
     run: async (_ctx, a) => {
       if (a.kind === 'sfx') return { text: `SOUND EFFECTS (use the id with add_sfx):\n${listSfx().map((s) => `  ${s.id}: ${s.name} [${s.role}] ${s.tags.slice(0, 5).join(', ')}`).join('\n') || '  (none installed)'}` };
       if (a.kind === 'voices') return { text: `VOICES for add_voiceover:\n${(await listVoices()).map((v) => `  ${v.id}: ${v.name}`).join('\n') || '  (none)'}` };
+      if (a.kind === 'luts') return { text: `LUTS for set_clip_look lut=<name>:\n${listLuts().map((l) => `  ${l.name}`).join('\n') || '  (none imported; the user can import .cube files on the Effects tab)'}` };
       if (a.kind === 'fonts') return { text: `FONTS (use the family name with add_text font or set_font):\n${FONT_FAMILIES.map((f) => `  ${f}: ${FONT_NOTES[f] ?? ''}`).join('\n')}` };
       const files = listLibrary(a.kind === 'music' ? 'music' : 'broll');
       return { text: files.length ? `${str(a.kind).toUpperCase()} LIBRARY (refer to a file as "library:<name>"):\n${files.map((f) => `  ${f.name}`).join('\n')}` : `The ${str(a.kind)} library is empty. Only the files in this project are available.` };
@@ -747,8 +748,39 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'set_clip_look',
-    description: `Adjust the colour of a main or b-roll clip, or every main clip when clip_id is "all". Pass a look (${Object.keys(LOOKS).join(', ')}) for a ready-made grade, or values: multipliers where 1 leaves it unchanged (brightness 1.1, contrast 1.05, saturation 1.2), black_and_white 0-1, warmth -1 (cool) to 1 (warm), vignette 0-1, sepia 0-1, grain 0-1 (film grain), cinema_bars 0-0.25 (black bars top and bottom), mirror. Pass reset to clear.`,
-    schema: obj({ clip_id: S('Clip id, or "all" for every main clip.'), look: S('A ready-made look.', Object.keys(LOOKS)), brightness: N('1 = unchanged.'), contrast: N('1 = unchanged.'), saturation: N('1 = unchanged.'), black_and_white: N('0-1.'), blur: N('0-1, 1 = heavy blur.'), warmth: N('-1 cool to 1 warm.'), vignette: N('0-1.'), sepia: N('0-1.'), grain: N('0-1.'), cinema_bars: N('0-0.25 of the height.'), mirror: B('Flip the picture left to right.'), reset: B('Remove all adjustments.') }, ['clip_id']),
+    description: `Grade the colour of a main or b-roll clip, or every main clip when clip_id is "all". Start from a look (${Object.keys(LOOKS).join(', ')}) or from the clip's current grade, then set values. Basic: brightness/contrast/saturation (multipliers, 1 = unchanged), black_and_white 0-1, blur, warmth -1..1, vignette, sepia, grain, cinema_bars 0-0.25, mirror. Lightroom-style: exposure (stops, -2..2), highlights and shadows (-1..1: pull down blown skies with highlights -0.4, open dark faces with shadows +0.3), whites and blacks (-1..1), temperature (-1 blue..1 amber) and tint (-1 green..1 magenta) to fix a colour cast, vibrance (-1..1, saturates muted colours first). curve_rgb (and curve_r/g/b): points of [in, out] in 0..1, e.g. a gentle S [[0,0],[0.25,0.2],[0.75,0.8],[1,1]] for contrast, [[0,0.08],[1,1]] lifts the blacks for a matte film look. hsl: per hue range (red, orange, yellow, green, aqua, blue, purple, magenta) {hue, sat, lum} each -1..1, e.g. {"orange":{"sat":-0.3}} tames skin, {"green":{"hue":0.3,"sat":-0.2}} makes foliage teal. lut: the name of an imported .cube LUT (list_library kind=luts) with lut_amount 0-1. copy_from: a clip id whose grade is copied to the targets (the way to match clips). Pass reset to clear. For a consistent piece grade all main clips together (clip_id "all").`,
+    schema: obj({
+      clip_id: S('Clip id, or "all" for every main clip.'),
+      look: S('A ready-made look.', Object.keys(LOOKS)),
+      copy_from: S('A clip id whose grade is copied to the targets.'),
+      brightness: N('1 = unchanged.'),
+      contrast: N('1 = unchanged.'),
+      saturation: N('1 = unchanged.'),
+      black_and_white: N('0-1.'),
+      blur: N('0-1, 1 = heavy blur.'),
+      warmth: N('-1 cool to 1 warm.'),
+      vignette: N('0-1.'),
+      sepia: N('0-1.'),
+      grain: N('0-1.'),
+      cinema_bars: N('0-0.25 of the height.'),
+      mirror: B('Flip the picture left to right.'),
+      exposure: N('Stops, -2..2.'),
+      highlights: N('-1..1.'),
+      shadows: N('-1..1.'),
+      whites: N('-1..1.'),
+      blacks: N('-1..1.'),
+      temperature: N('-1 blue to 1 amber.'),
+      tint: N('-1 green to 1 magenta.'),
+      vibrance: N('-1..1.'),
+      curve_rgb: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Master curve points [[in,out],...] in 0..1.' },
+      curve_r: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Red curve points.' },
+      curve_g: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Green curve points.' },
+      curve_b: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Blue curve points.' },
+      hsl: { type: 'object', description: 'Per hue range {hue, sat, lum} in -1..1, e.g. {"orange":{"sat":-0.3}}.' },
+      lut: S('Name of an imported .cube LUT, or "" to remove it.'),
+      lut_amount: N('0-1, default 1.'),
+      reset: B('Remove all adjustments.'),
+    }, ['clip_id']),
     label: () => 'Adjusting colour',
     run: (ctx, a) => {
       const v = view(ctx.p);
@@ -759,11 +791,36 @@ export const TOOLS: ToolDef[] = [
         if (it.kind !== 'main' && it.kind !== 'overlay') bad('Colour can only be adjusted on main and b-roll clips.');
         const cur = sourceClip(d, it.kind, it.id);
         if (!cur) continue;
-        const base = a.look ? (LOOKS[str(a.look)]?.fx ?? bad(`Unknown look "${a.look}". Use ${Object.keys(LOOKS).join(', ')}.`)) : cur.fx ?? {};
+        const from = a.copy_from ? sourceClip(d, findItem(v, a.copy_from).kind as 'main' | 'overlay', str(a.copy_from)) : undefined;
+        if (a.copy_from && !from) bad(`No clip ${a.copy_from} to copy the grade from.`);
+        const base = a.look ? (LOOKS[str(a.look)]?.fx ?? bad(`Unknown look "${a.look}". Use ${Object.keys(LOOKS).join(', ')}.`)) : from ? from.fx ?? {} : cur.fx ?? {};
+        const signed = (key: string, lo = -1, hi = 1) => (a[key] !== undefined ? { [key]: clamp(num(a[key], key), lo, hi) || undefined } : {});
+        const curve = (key: string) => {
+          const pts = a[key];
+          if (pts === undefined) return {};
+          if (!Array.isArray(pts) || pts.some((p) => !Array.isArray(p) || p.length !== 2)) bad(`${key} must be a list of [in, out] pairs.`);
+          return { [key]: (pts as number[][]).map(([x, y]) => [clamp(x, 0, 1), clamp(y, 0, 1)] as [number, number]) };
+        };
+        const curves = { ...(base.curves ?? {}), ...(curve('curve_rgb').curve_rgb ? { rgb: curve('curve_rgb').curve_rgb } : {}), ...(curve('curve_r').curve_r ? { r: curve('curve_r').curve_r } : {}), ...(curve('curve_g').curve_g ? { g: curve('curve_g').curve_g } : {}), ...(curve('curve_b').curve_b ? { b: curve('curve_b').curve_b } : {}) };
+        if (a.hsl !== undefined && (typeof a.hsl !== 'object' || a.hsl === null)) bad('hsl must be an object such as {"orange":{"sat":-0.3}}.');
+        const hsl = a.hsl ? { ...(base.hsl ?? {}), ...(a.hsl as Record<string, { hue?: number; sat?: number; lum?: number }>) } : base.hsl;
+        if (a.lut && !readLut(str(a.lut))) bad(`No LUT named "${a.lut}" in the library (list_library kind=luts).`);
         const fx = a.reset
           ? undefined
           : {
               ...base,
+              ...signed('exposure', -2, 2),
+              ...signed('highlights'),
+              ...signed('shadows'),
+              ...signed('whites'),
+              ...signed('blacks'),
+              ...signed('temperature'),
+              ...signed('tint'),
+              ...signed('vibrance'),
+              ...(Object.keys(curves).length ? { curves } : {}),
+              ...(hsl && Object.keys(hsl).length ? { hsl } : {}),
+              ...(a.lut !== undefined ? { lut: str(a.lut) || undefined } : {}),
+              ...(a.lut_amount !== undefined ? { lutAmount: clamp(num(a.lut_amount, 'lut_amount'), 0, 1) } : {}),
               ...(a.brightness !== undefined ? { brightness: clamp(num(a.brightness, 'brightness'), 0.2, 2) } : {}),
               ...(a.contrast !== undefined ? { contrast: clamp(num(a.contrast, 'contrast'), 0.2, 2) } : {}),
               ...(a.saturation !== undefined ? { saturation: clamp(num(a.saturation, 'saturation'), 0, 3) } : {}),
@@ -780,8 +837,8 @@ export const TOOLS: ToolDef[] = [
         n++;
       }
       if (!n) bad('No clip with a picture to adjust.');
-      save(ctx, d, 'set_clip_look', a.look ? `Look: ${str(a.look)}` : 'Colour');
-      return { text: a.reset ? `Cleared colour adjustments on ${n} clip${n === 1 ? '' : 's'}.` : `Updated the look of ${n} clip${n === 1 ? '' : 's'}${a.look ? ` (${LOOKS[str(a.look)].label})` : ''}.` };
+      save(ctx, d, 'set_clip_look', a.look ? `Look: ${str(a.look)}` : a.copy_from ? 'Match grade' : 'Colour');
+      return { text: a.reset ? `Cleared colour adjustments on ${n} clip${n === 1 ? '' : 's'}.` : `Updated the grade of ${n} clip${n === 1 ? '' : 's'}${a.look ? ` (${LOOKS[str(a.look)].label})` : a.copy_from ? ` (copied from ${str(a.copy_from)})` : ''}.` };
     },
   },
 

@@ -37,6 +37,9 @@ export interface Ctx2D {
   createLinearGradient(x0: number, y0: number, x1: number, y1: number): { addColorStop(offset: number, color: string): void };
   createPattern(image: any, repetition: string): unknown;
   transform(a: number, b: number, c: number, d: number, e: number, f: number): void;
+  clearRect?(x: number, y: number, w: number, h: number): void;
+  getImageData?(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray; width: number; height: number };
+  putImageData?(data: unknown, x: number, y: number): void;
   globalCompositeOperation: any;
   font: string;
   fillStyle: any;

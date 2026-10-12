@@ -2800,3 +2800,34 @@ input[type='range']::-webkit-slider-thumb {
   flex: 1;
   min-width: 0;
 }
+
+/* Colour grading */
+.curve-editor {
+  display: grid;
+  gap: 8px;
+}
+.curve-canvas {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  touch-action: none;
+  cursor: crosshair;
+}
+.hsl-bands {
+  display: flex;
+  gap: 5px;
+}
+.hsl-band {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.hsl-band.set {
+  box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px var(--text-2);
+}
+.hsl-band.on {
+  opacity: 1;
+  border-color: #fff;
+}

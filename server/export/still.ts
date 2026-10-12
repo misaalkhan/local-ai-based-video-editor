@@ -1,6 +1,7 @@
 // Single frames of the finished picture: for the assistant to look at its own
 // work, and for contact sheets. Reads the small proxies, so it is quick.
 
+import { readLut } from '../library.ts';
 import { spawn } from 'node:child_process';
 import { ImageData, createCanvas, loadImage } from '@napi-rs/canvas';
 import type { Canvas, Image } from '@napi-rs/canvas';
@@ -131,6 +132,7 @@ export async function renderStill(p: Project, source: ProjectDoc, t: number, opt
       const img = images.get(id);
       return img ? { image: img, width: img.width, height: img.height } : undefined;
     },
+    lut: (name) => readLut(name),
     scratch: (w, h) => {
       const key = `${w}x${h}`;
       let s = scratch.get(key);

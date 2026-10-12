@@ -169,6 +169,8 @@ export const api = {
   sfxRemove: (id: string) => request('DELETE', `/api/library/sfx/${encodeURIComponent(id)}`),
   soundsSearch: (q: string) => request<{ sounds: FoundSound[] }>('GET', `/api/sounds/search?q=${encodeURIComponent(q)}`).then((r) => r.sounds),
   sfxSave: (found: FoundSound) => request<{ sound: SfxEntry }>('POST', '/api/library/sfx/save', found).then((r) => r.sound),
+  luts: () => request<{ luts: { name: string }[] }>('GET', '/api/library/luts').then((r) => r.luts),
+  removeLut: (name: string) => request('DELETE', `/api/library/luts/${encodeURIComponent(name)}`),
   memeTemplates: (q: string) => request<{ templates: MemeTemplate[] }>('GET', `/api/memes/templates?q=${encodeURIComponent(q)}`).then((r) => r.templates),
   addMeme: (projectId: ID, id: string) => request<{ media: MediaAsset; template: MemeTemplate }>('POST', `/api/projects/${projectId}/memes`, { id }),
 };
@@ -186,6 +188,26 @@ export function uploadFile(projectId: ID, file: File, onProgress?: (fraction: nu
       try {
         const data = JSON.parse(xhr.responseText) as { media?: MediaAsset; error?: string };
         if (xhr.status >= 200 && xhr.status < 300 && data.media) resolve(data.media);
+        else reject(new ApiError(xhr.status, data.error ?? 'upload failed'));
+      } catch {
+        reject(new ApiError(xhr.status, 'upload failed'));
+      }
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'upload failed: the server did not answer'));
+    xhr.send(file);
+  });
+}
+
+/** A .cube LUT file, saved into the library. */
+export function uploadLut(file: File): Promise<{ name: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/library/luts/upload?name=${encodeURIComponent(file.name)}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText) as { lut?: { name: string }; error?: string };
+        if (xhr.status >= 200 && xhr.status < 300 && data.lut) resolve(data.lut);
         else reject(new ApiError(xhr.status, data.error ?? 'upload failed'));
       } catch {
         reject(new ApiError(xhr.status, 'upload failed'));

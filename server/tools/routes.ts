@@ -4,7 +4,7 @@ import { pipeline } from 'node:stream/promises';
 import type { Router } from '../http.ts';
 import { sendFile } from '../http.ts';
 import { HttpError, getProject } from '../store.ts';
-import { addMineSfx, ensureLibraryDirs, listSfx, mineSfxPath, removeMineSfx, setFavouriteSfx } from '../library.ts';
+import { addMineSfx, ensureLibraryDirs, listLuts, listSfx, lutPath, mineSfxPath, readLut, removeLut, removeMineSfx, setFavouriteSfx } from '../library.ts';
 import { listVoices } from '../tts.ts';
 import { ToolError, callTool } from './index.ts';
 import { searchGifs } from '../gifs.ts';
@@ -88,6 +88,29 @@ export function register(r: Router): void {
     } catch (err) {
       throw new HttpError(400, (err as Error).message);
     }
+  });
+
+  // Colour LUTs: .cube files in the library, dropped in from the Effects tab.
+  r.get('/api/library/luts', (c) => c.json({ luts: listLuts().map((l) => ({ name: l.name })) }));
+  r.get('/api/library/luts/:name/file', (c) => {
+    const l = listLuts().find((x) => x.name === c.params.name);
+    if (!l) throw new HttpError(404, 'no such LUT');
+    sendFile(c.req, c.res, l.file, { cache: 'public, max-age=3600' });
+  });
+  r.post('/api/library/luts/upload', async (c) => {
+    const given = path.basename(c.query.get('name') ?? 'lut.cube');
+    if (!/\.cube$/i.test(given)) throw new HttpError(400, 'a LUT is a .cube file');
+    const { name, file } = lutPath(given);
+    await pipeline(c.req, fs.createWriteStream(file));
+    if (!readLut(name)) {
+      fs.rmSync(file, { force: true });
+      throw new HttpError(400, 'that file is not a 3D .cube LUT');
+    }
+    c.json({ lut: { name } }, 201);
+  });
+  r.delete('/api/library/luts/:name', (c) => {
+    if (!removeLut(c.params.name)) throw new HttpError(404, 'no such LUT');
+    c.json({ ok: true });
   });
 
   // Meme templates (Imgflip's public list) and putting one into a project.
