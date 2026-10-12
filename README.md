@@ -41,7 +41,7 @@ If your videos are in more than one language, set them on the Plan page (You →
 
 ## Licences
 
-Fonts in `fonts/` are under the SIL Open Font License or Apache 2.0 (`fonts/LICENSE-*.txt`). Bundled music is by Kevin MacLeod under CC BY 4.0; the assistant gives you the credit line for the caption when it uses a track (`library/music/LICENSE-music.txt`). The sound pack comes from Mixkit under its free licence (`library/sfx/LICENSE-pack.txt`). Model files keep their own licences.
+The code is under the MIT License (`LICENSE`). Fonts in `fonts/` are under the SIL Open Font License or Apache 2.0 (`fonts/LICENSE-*.txt`). Bundled music is by Kevin MacLeod under CC BY 4.0; the assistant gives you the credit line for the caption when it uses a track (`library/music/LICENSE-music.txt`). The sound pack comes from Mixkit under its free licence (`library/sfx/LICENSE-pack.txt`). Model files keep their own licences.
 
 ## Development
 
