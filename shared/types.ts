@@ -164,6 +164,35 @@ export interface Keyframe extends Partial<Transform> {
 }
 
 /** B-roll and other visuals drawn over the main track. */
+/** A shape that limits where a layer shows, in fractions of the layer's own picture (0..1). */
+export interface LayerMask {
+  shape: 'rect' | 'ellipse';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Softness of the edge as a fraction of the picture width, 0..0.5. */
+  feather?: number;
+  /** Show everything except the shape. */
+  invert?: boolean;
+  /** Rect only: corner radius as a fraction of the picture width. */
+  radius?: number;
+}
+
+export type BlendMode = 'normal' | 'screen' | 'multiply' | 'overlay' | 'lighten' | 'darken' | 'soft-light' | 'difference' | 'lighter';
+
+/** Green-screen keying: pixels close to the colour become transparent. */
+export interface ChromaKey {
+  /** Hex colour, e.g. #00FF00. */
+  color: string;
+  /** 0..1, how far from the colour still counts as it. */
+  similarity: number;
+  /** 0..1, width of the soft edge. */
+  smoothness: number;
+  /** 0..1, how much of the colour's tint is removed from the edges. */
+  spill: number;
+}
+
 export interface OverlayClip extends SourceClip {
   start: number;
   opacity?: number;
@@ -172,6 +201,9 @@ export interface OverlayClip extends SourceClip {
   keyframes?: Keyframe[];
   /** Corner radius as a fraction of the layer width. */
   radius?: number;
+  mask?: LayerMask;
+  blend?: BlendMode;
+  key?: ChromaKey;
 }
 
 export type AudioRole = 'voice' | 'music' | 'sfx';

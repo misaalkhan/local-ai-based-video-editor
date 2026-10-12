@@ -3,7 +3,7 @@
 // (video frames, stills) through a FrameProvider. That is why an export looks
 // like what was on screen.
 
-import type { CaptionSettings, CaptionStyle, ClipFx, FaceTrack, ID, MainClip, ProjectDoc, Transform } from './types.ts';
+import type { CaptionSettings, CaptionStyle, ChromaKey, ClipFx, FaceTrack, ID, MainClip, OverlayClip, ProjectDoc, Transform } from './types.ts';
 import type { CaptionCard } from './captions.ts';
 import { cardAt, displayWord } from './captions.ts';
 import { applyBaked, bakeGrade, needsGrade } from './color.ts';
@@ -34,7 +34,7 @@ export interface FrameProvider {
   /** A still image, for image graphics. */
   image?(mediaId: ID): DrawableImage | undefined;
   /** A small offscreen canvas for effects, reused between frames. */
-  scratch?(w: number, h: number): { canvas: unknown; ctx: Ctx2D } | undefined;
+  scratch?(w: number, h: number, slot?: string): { canvas: unknown; ctx: Ctx2D } | undefined;
   /** A 3D LUT from the library by name: null when missing, undefined while it loads. */
   lut?(name: string): Lut3D | null | undefined;
 }
@@ -384,10 +384,150 @@ function drawMain(env: Env, scene: Scene, layout: MainSeg[], fps: number): void 
   }
 }
 
+/** Hex colour to 0..255 channels. */
+function hexRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return [0, 255, 0];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * Green-screen keying in place: pixels whose chroma sits near the key colour
+ * turn transparent, with a soft edge, and the key's tint is pulled out of the
+ * pixels along that edge (spill).
+ */
+export function chromaKey(data: Uint8ClampedArray, key: ChromaKey): void {
+  const [kr, kg, kb] = hexRgb(key.color);
+  const kcb = -0.1687 * kr - 0.3313 * kg + 0.5 * kb;
+  const kcr = 0.5 * kr - 0.4187 * kg - 0.0813 * kb;
+  // Similarity 0..1 spans chroma distances 0..~120 (of a possible ~180).
+  const lo = clamp(key.similarity, 0, 1) * 120;
+  const hi = lo + clamp(key.smoothness, 0, 1) * 80 + 1;
+  const spill = clamp(key.spill, 0, 1);
+  const keyMax = Math.max(kr, kg, kb);
+  const keyChannel = keyMax === kg ? 1 : keyMax === kb ? 2 : 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const cb = -0.1687 * r - 0.3313 * g + 0.5 * b;
+    const cr = 0.5 * r - 0.4187 * g - 0.0813 * b;
+    const d = Math.hypot(cb - kcb, cr - kcr);
+    let a = d <= lo ? 0 : d >= hi ? 1 : (d - lo) / (hi - lo);
+    a = a * a * (3 - 2 * a);
+    if (a < 1 && spill > 0) {
+      // Pull the key channel down to the other two, by how close the pixel is to the key.
+      const others = keyChannel === 1 ? (r + b) / 2 : keyChannel === 2 ? (r + g) / 2 : (g + b) / 2;
+      const v = data[i + keyChannel];
+      if (v > others) data[i + keyChannel] = Math.round(v - (v - others) * spill * (1 - a * 0.5));
+    }
+    if (a < 1) data[i + 3] = Math.round(data[i + 3] * a);
+  }
+}
+
+/** Mask, blend mode or green screen: the layer is built on a scratch canvas, shaped, keyed, then composited. */
+function drawShapedOverlay(env: Env, ref: VisualRef, img: LayerImage): void {
+  const { ctx, W, H, o } = env;
+  const clip = ref.clip as OverlayClip;
+  const k = o.pixelScale;
+  const sw = Math.max(1, Math.round(W * k));
+  const sh = Math.max(1, Math.round(H * k));
+  const layer = o.provider.scratch?.(sw, sh, 'layer');
+  if (!layer) return;
+  const lc = layer.ctx as Ctx2D & { setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void; getImageData(x: number, y: number, w: number, h: number): { data: Uint8ClampedArray }; putImageData(d: unknown, x: number, y: number): void };
+  lc.save();
+  lc.setTransform(1, 0, 0, 1, 0, 0);
+  lc.globalCompositeOperation = 'copy';
+  lc.globalAlpha = 0;
+  lc.fillStyle = '#000';
+  lc.fillRect(0, 0, sw, sh);
+  lc.globalCompositeOperation = 'source-over';
+  lc.globalAlpha = 1;
+  lc.setTransform(k, 0, 0, k, 0, 0);
+  // The layer itself, placed as it would be in the frame.
+  const tr = ref.transform;
+  const size = o.provider.mediaSize(ref.clip.mediaId);
+  const framing = framingAt(ref.clip.framing, undefined, ref.sourceTime, ref.clip.motion, env.t - ref.clipStart);
+  const dst = size ? layerGeometry(size.width, size.height, W, H, framing).dst : { x: 0, y: 0, w: W, h: H };
+  const place = (c: Ctx2D) => {
+    if (tr) {
+      c.translate(tr.x * W, tr.y * H);
+      if (tr.rotation) c.rotate((tr.rotation * Math.PI) / 180);
+      c.scale(tr.scale, tr.scale);
+      c.translate(-W / 2, -H / 2);
+    }
+  };
+  lc.save();
+  place(lc);
+  if (ref.radius) {
+    roundRect(lc, dst.x, dst.y, dst.w, dst.h, ref.radius * dst.w);
+    lc.clip();
+  }
+  drawClip({ ...env, ctx: lc }, ref, img, 1);
+  lc.restore();
+  // Green screen.
+  if (clip.key && typeof lc.getImageData === 'function') {
+    lc.setTransform(1, 0, 0, 1, 0, 0);
+    const id = lc.getImageData(0, 0, sw, sh);
+    chromaKey(id.data, clip.key);
+    lc.putImageData(id, 0, 0);
+    lc.setTransform(k, 0, 0, k, 0, 0);
+  }
+  // Mask: a shape in the picture's own coordinates, softened with a blur, kept (or cut) from the layer.
+  const mask = clip.mask;
+  if (mask) {
+    const m = o.provider.scratch?.(sw, sh, 'mask');
+    if (m) {
+      const mc = m.ctx as Ctx2D & { setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void };
+      mc.save();
+      mc.setTransform(1, 0, 0, 1, 0, 0);
+      mc.globalCompositeOperation = 'copy';
+      mc.globalAlpha = 0;
+      mc.fillStyle = '#000';
+      mc.fillRect(0, 0, sw, sh);
+      mc.globalCompositeOperation = 'source-over';
+      mc.globalAlpha = 1;
+      mc.setTransform(k, 0, 0, k, 0, 0);
+      place(mc);
+      const feather = clamp(mask.feather ?? 0, 0, 0.5) * dst.w * k * (tr?.scale ?? 1);
+      if (feather > 0.5 && 'filter' in mc) mc.filter = `blur(${feather.toFixed(1)}px)`;
+      mc.fillStyle = '#fff';
+      const mx = dst.x + mask.x * dst.w;
+      const my = dst.y + mask.y * dst.h;
+      const mw = Math.max(0.001, mask.w) * dst.w;
+      const mh = Math.max(0.001, mask.h) * dst.h;
+      mc.beginPath();
+      if (mask.shape === 'ellipse') mc.ellipse(mx + mw / 2, my + mh / 2, mw / 2, mh / 2, 0, 0, Math.PI * 2);
+      else roundRect(mc, mx, my, mw, mh, (mask.radius ?? 0) * dst.w);
+      mc.fill();
+      if ('filter' in mc) mc.filter = 'none';
+      mc.restore();
+      lc.setTransform(1, 0, 0, 1, 0, 0);
+      lc.globalCompositeOperation = mask.invert ? 'destination-out' : 'destination-in';
+      lc.drawImage(m.canvas, 0, 0, sw, sh, 0, 0, sw, sh);
+      lc.globalCompositeOperation = 'source-over';
+      lc.setTransform(k, 0, 0, k, 0, 0);
+    }
+  }
+  lc.restore();
+  ctx.save();
+  ctx.globalAlpha = ref.opacity;
+  if (clip.blend && clip.blend !== 'normal') ctx.globalCompositeOperation = clip.blend;
+  ctx.drawImage(layer.canvas, 0, 0, sw, sh, 0, 0, W, H);
+  ctx.restore();
+}
+
 function drawOverlay(env: Env, ref: VisualRef): void {
   const { ctx, W, H, o } = env;
   const img = o.provider.layer(ref);
   if (!img) return;
+  const clip = ref.clip as OverlayClip;
+  if (clip.mask || clip.key || (clip.blend && clip.blend !== 'normal')) {
+    drawShapedOverlay(env, ref, img);
+    return;
+  }
   const tr: Transform | undefined = ref.transform;
   const plain = !tr || (tr.x === 0.5 && tr.y === 0.5 && tr.scale === 1 && tr.rotation === 0);
   if (plain && !ref.radius) {

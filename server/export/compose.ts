@@ -424,8 +424,8 @@ export class Compositor {
         return img ? { image: img, width: img.width, height: img.height } : undefined;
       },
       lut: (name) => readLut(name),
-      scratch: (w, h) => {
-        const key = `${w}x${h}`;
+      scratch: (w, h, slot = '') => {
+        const key = `${w}x${h}:${slot}`;
         let s = this.scratch.get(key);
         if (!s) {
           const canvas = createCanvas(w, h);

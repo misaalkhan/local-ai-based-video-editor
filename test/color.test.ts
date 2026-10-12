@@ -46,3 +46,13 @@ test('HSL on a band shifts only that band', () => {
   assert.ok(Math.abs(red[0] - red[1]) < 30, 'red desaturated');
   assert.ok(blue[2] - blue[0] > 150, 'blue untouched');
 });
+
+test('green-screen keying clears the key colour and keeps the subject', async () => {
+  const { chromaKey } = await import('../shared/draw.ts');
+  const px = new Uint8ClampedArray([255, 140, 26, 255, 31, 209, 31, 255, 60, 200, 60, 255, 255, 255, 255, 255]);
+  chromaKey(px, { color: '#1FD11F', similarity: 0.25, smoothness: 0.15, spill: 0.5 });
+  assert.equal(px[3], 255, 'orange stays');
+  assert.equal(px[7], 0, 'green goes');
+  assert.equal(px[11], 0, 'near green goes');
+  assert.equal(px[15], 255, 'white stays');
+});

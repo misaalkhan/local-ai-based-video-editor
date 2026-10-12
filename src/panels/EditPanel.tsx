@@ -1,6 +1,7 @@
 // Properties of whatever is selected on the timeline.
 
-import type { AnimKind, AudioClip, Ease, GraphicItem, GraphicTemplate, Keyframe, MainClip, MotionKeyframe, OverlayClip, SourceClip, ZoomItem } from '../../shared/types.ts';
+import type { AnimKind, AudioClip, BlendMode, ChromaKey, Ease, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, ZoomItem } from '../../shared/types.ts';
+import { mediaUrl } from '../api.ts';
 import { player } from '../engine/player.ts';
 import { usePlayerTime } from '../hooks.ts';
 import { framingAt } from '../../shared/timeline.ts';
@@ -217,6 +218,115 @@ function PlacementKeyframes({ kind, id, start, length, keyframes, base }: { kind
       )}
       <div className="hint">A keyframe holds the placement at a moment; the item moves between keyframes. Place it with the sliders above where the playhead is, then add a keyframe there.</div>
     </Section>
+  );
+}
+
+const BLENDS: { value: BlendMode; label: string }[] = [
+  { value: 'normal', label: 'Normal' },
+  { value: 'screen', label: 'Screen (light leaks, glows)' },
+  { value: 'multiply', label: 'Multiply (textures, paper)' },
+  { value: 'overlay', label: 'Overlay' },
+  { value: 'soft-light', label: 'Soft light' },
+  { value: 'lighten', label: 'Lighten' },
+  { value: 'darken', label: 'Darken' },
+  { value: 'lighter', label: 'Add (sparks, fire)' },
+  { value: 'difference', label: 'Difference' },
+];
+
+/** Blend mode, mask and green screen of a picture-in-picture layer. */
+function LayerStyle({ o, m, set, now, done }: { o: OverlayClip; m: MediaAsset | undefined; set: (p: Partial<OverlayClip>) => void; now: (p: Partial<OverlayClip>, label: string) => void; done: (label: string) => () => void }) {
+  const projectId = useStore((s) => s.projectId)!;
+  const mask = o.mask;
+  const key = o.key;
+  const setMask = (patch: Partial<LayerMask>) => set({ mask: { ...(mask ?? { shape: 'rect', x: 0.1, y: 0.1, w: 0.8, h: 0.8 }), ...patch } });
+  const setKey = (patch: Partial<ChromaKey>) => set({ key: { ...(key ?? { color: '#00FF00', similarity: 0.25, smoothness: 0.15, spill: 0.5 }), ...patch } });
+  const pickCorners = async () => {
+    if (!m) return;
+    const img = new Image();
+    img.src = mediaUrl(projectId, m, 'thumb.jpg');
+    await img.decode().catch(() => undefined);
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const cx = c.getContext('2d', { willReadFrequently: true })!;
+    cx.drawImage(img, 0, 0);
+    const s = Math.max(2, Math.round(Math.min(c.width, c.height) * 0.04));
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (const [x, y] of [[0, 0], [c.width - s, 0], [0, c.height - s], [c.width - s, c.height - s]]) {
+      const d = cx.getImageData(x, y, s, s).data;
+      for (let i = 0; i < d.length; i += 4) {
+        r += d[i];
+        g += d[i + 1];
+        b += d[i + 2];
+        n++;
+      }
+    }
+    const hex = (v: number) => Math.round(v / n).toString(16).padStart(2, '0');
+    now({ key: { ...(key ?? { similarity: 0.25, smoothness: 0.15, spill: 0.5 }), color: `#${hex(r)}${hex(g)}${hex(b)}`.toUpperCase() } }, 'Green screen colour');
+  };
+  return (
+    <>
+      <Section title="Blend">
+        <Select value={o.blend ?? 'normal'} options={BLENDS} onChange={(v) => now({ blend: v === 'normal' ? undefined : v }, `Blend: ${v}`)} />
+      </Section>
+      <Section title="Mask" action={mask ? <Button size="sm" variant="ghost" onClick={() => now({ mask: undefined }, 'Remove mask')}>Remove</Button> : undefined}>
+        <Segmented value={mask?.shape ?? 'none'} options={[{ value: 'none', label: 'None' }, { value: 'rect', label: 'Rectangle' }, { value: 'ellipse', label: 'Ellipse' }]} onChange={(v) => (v === 'none' ? now({ mask: undefined }, 'Remove mask') : now({ mask: { ...(mask ?? { x: 0.1, y: 0.1, w: 0.8, h: 0.8 }), shape: v as 'rect' | 'ellipse' } }, `${v} mask`))} />
+        {mask && (
+          <>
+            <Field label="Left">
+              <Slider value={mask.x} min={-0.5} max={1} step={0.005} onChange={(v) => setMask({ x: v })} onCommit={done('Mask')} format={pct} />
+            </Field>
+            <Field label="Top">
+              <Slider value={mask.y} min={-0.5} max={1} step={0.005} onChange={(v) => setMask({ y: v })} onCommit={done('Mask')} format={pct} />
+            </Field>
+            <Field label="Width">
+              <Slider value={mask.w} min={0.02} max={1.5} step={0.005} onChange={(v) => setMask({ w: v })} onCommit={done('Mask')} format={pct} />
+            </Field>
+            <Field label="Height">
+              <Slider value={mask.h} min={0.02} max={1.5} step={0.005} onChange={(v) => setMask({ h: v })} onCommit={done('Mask')} format={pct} />
+            </Field>
+            <Field label="Feather">
+              <Slider value={mask.feather ?? 0} min={0} max={0.5} step={0.005} onChange={(v) => setMask({ feather: v })} onCommit={done('Feather')} format={pct} />
+            </Field>
+            {mask.shape === 'rect' && (
+              <Field label="Corners">
+                <Slider value={mask.radius ?? 0} min={0} max={0.5} step={0.01} onChange={(v) => setMask({ radius: v })} onCommit={done('Mask corners')} format={pct} />
+              </Field>
+            )}
+            <Toggle checked={!!mask.invert} onChange={(v) => now({ mask: { ...mask, invert: v || undefined } }, 'Invert mask')} label="Cut the shape out instead" />
+          </>
+        )}
+      </Section>
+      <Section title="Green screen" action={key ? <Button size="sm" variant="ghost" onClick={() => now({ key: undefined }, 'Green screen off')}>Off</Button> : undefined}>
+        {!key ? (
+          <div className="row">
+            <Button size="sm" onClick={() => void pickCorners()}>Key the background (from the corners)</Button>
+            <Button size="sm" variant="ghost" onClick={() => now({ key: { color: '#00FF00', similarity: 0.25, smoothness: 0.15, spill: 0.5 } }, 'Green screen')}>Key green</Button>
+          </div>
+        ) : (
+          <>
+            <div className="row">
+              <Field label="Colour">
+                <ColorInput value={key.color} onChange={(v) => setKey({ color: v })} onCommit={done('Key colour')} />
+              </Field>
+              <Button size="sm" variant="ghost" onClick={() => void pickCorners()}>From corners</Button>
+            </div>
+            <Field label="Similarity">
+              <Slider value={key.similarity} min={0} max={1} step={0.01} onChange={(v) => setKey({ similarity: v })} onCommit={done('Key')} format={pct} />
+            </Field>
+            <Field label="Smoothness">
+              <Slider value={key.smoothness} min={0} max={1} step={0.01} onChange={(v) => setKey({ smoothness: v })} onCommit={done('Key')} format={pct} />
+            </Field>
+            <Field label="Spill removal">
+              <Slider value={key.spill} min={0} max={1} step={0.01} onChange={(v) => setKey({ spill: v })} onCommit={done('Key')} format={pct} />
+            </Field>
+          </>
+        )}
+      </Section>
+    </>
   );
 }
 
@@ -450,6 +560,7 @@ function ClipEditor({ kind, clip }: { kind: 'main' | 'overlay' | 'audio'; clip: 
         </Section>
       )}
       {kind === 'overlay' && <PlacementKeyframes kind="overlay" id={clip.id} start={o.start} length={srcDuration(clip)} keyframes={o.keyframes} base={{ x: tr.x, y: tr.y, scale: tr.scale, rotation: tr.rotation, opacity: o.opacity ?? 1 }} />}
+      {kind === 'overlay' && <LayerStyle o={o} m={m} set={set} now={now} done={done} />}
       {kind !== 'audio' && <MotionEditor kind={kind} clip={clip} start={clipStart} />}
       {kind !== 'audio' && (
         <Button size="sm" icon="sliders" onClick={() => setUi({ left: 'effects' })}>

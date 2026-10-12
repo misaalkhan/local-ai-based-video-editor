@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ID, MediaAsset, ProjectDoc, Range, TakeGroup } from '../../shared/types.ts';
+import type { ID, MediaAsset, OverlayClip, ProjectDoc, Range, TakeGroup } from '../../shared/types.ts';
 import { ASPECTS, aspectOf } from '../../shared/types.ts';
 import * as ops from '../../shared/ops.ts';
 import { DEFAULT_FRAMING, clamp, contentDuration, layoutMain, snap, srcDuration } from '../../shared/timeline.ts';
@@ -14,7 +14,7 @@ import { FONT_FAMILIES, FONT_NOTES, nearestWeight } from '../../shared/fonts.ts'
 import { GRAPHIC_PRESETS, GRAPHIC_TEMPLATES } from '../../shared/graphics.ts';
 import { findTakes } from '../../shared/takes.ts';
 import { faceInFrame, lint } from '../../shared/lint.ts';
-import { getEnvelope, getFaces, getWords, patchMedia } from '../store.ts';
+import { getEnvelope, getFaces, getWords, mediaDir, patchMedia } from '../store.ts';
 import type { Project } from '../store.ts';
 import { importMedia } from '../media.ts';
 import { analyzeFaces, faceCoverage } from '../faces.ts';
@@ -80,6 +80,35 @@ const S = (description: string, values?: string[]) => ({ type: 'string', descrip
 const B = (description: string) => ({ type: 'boolean', description });
 
 const after = (doc: ProjectDoc) => `The video is now ${sec(contentDuration(doc))}s long.`;
+
+/** The average colour of a picture's four corners, as a hex string: the usual way to find a green screen's green. */
+async function autoKeyColor(p: Project, mediaId: ID): Promise<string | null> {
+  try {
+    const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+    const img = await loadImage(path.join(mediaDir(p, mediaId), 'thumb.jpg'));
+    const c = createCanvas(img.width, img.height);
+    const cx = c.getContext('2d');
+    cx.drawImage(img, 0, 0);
+    const s = Math.max(2, Math.round(Math.min(img.width, img.height) * 0.04));
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let n = 0;
+    for (const [x, y] of [[0, 0], [img.width - s, 0], [0, img.height - s], [img.width - s, img.height - s]]) {
+      const d = cx.getImageData(x, y, s, s).data;
+      for (let i = 0; i < d.length; i += 4) {
+        r += d[i];
+        g += d[i + 1];
+        b += d[i + 2];
+        n++;
+      }
+    }
+    const hex = (v: number) => Math.round(v / n).toString(16).padStart(2, '0');
+    return `#${hex(r)}${hex(g)}${hex(b)}`.toUpperCase();
+  } catch {
+    return null;
+  }
+}
 
 /** Sounds found by the last find_sound_online call, by Freesound id. */
 const foundSounds = new Map<number, FoundSound>();
@@ -1301,6 +1330,70 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       }
       save(ctx, d, 'add_gif', `GIF "${clip(g.description, 40)}" at ${sec(start)}s`);
       return { text: `Added GIF ${first} "${g.description}" ${sec(start)}-${sec(start + duration)}s at x=${pos.x.toFixed(2)} y=${pos.y.toFixed(2)} (${pos.how}), ${Math.round(size * 100)}% of the frame width.` };
+    },
+  },
+  {
+    name: 'style_overlay',
+    description: 'Shape, blend or key a b-roll (picture-in-picture) layer. blend: how it mixes with what is under it (screen for light leaks, overlays and glows on dark footage; multiply for textures and paper; overlay for punch; lighter for sparks). mask: a rect or ellipse in fractions of the picture (x, y, w, h), with feather for a soft edge and invert to cut a hole; "none" removes it. Green screen: key_color "auto" samples the picture\'s corners, or give a hex such as #00FF00; key_similarity (0.15-0.35 usual), key_smoothness (0.1-0.3), key_spill (0.5 usual); "none" removes it. Opacity and position stay on the clip itself (update_item).',
+    schema: obj({
+      item_id: S('The b-roll clip id.'),
+      blend: S('Blend mode.', ['normal', 'screen', 'multiply', 'overlay', 'lighten', 'darken', 'soft-light', 'difference', 'lighter']),
+      mask_shape: S('Mask shape, or "none" to remove.', ['rect', 'ellipse', 'none']),
+      mask_x: N('0-1 of the picture width.'),
+      mask_y: N('0-1 of the picture height.'),
+      mask_w: N('0-1.'),
+      mask_h: N('0-1.'),
+      mask_feather: N('0-0.5, softness of the edge.'),
+      mask_invert: B('Cut the shape out instead of keeping it.'),
+      mask_radius: N('Rect corners, 0-0.5.'),
+      key_color: S('"auto", a hex colour, or "none" to remove the green screen.'),
+      key_similarity: N('0-1.'),
+      key_smoothness: N('0-1.'),
+      key_spill: N('0-1.'),
+    }, ['item_id']),
+    label: () => 'Styling a layer',
+    run: async (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.item_id);
+      if (it.kind !== 'overlay') bad('style_overlay works on b-roll (picture-in-picture) clips.');
+      const o = v.doc.overlays.find((x) => x.id === it.id)!;
+      const patch: Partial<OverlayClip> = {};
+      if (a.blend !== undefined) patch.blend = str(a.blend) === 'normal' ? undefined : (str(a.blend) as OverlayClip['blend']);
+      if (a.mask_shape === 'none') patch.mask = undefined;
+      else if (a.mask_shape !== undefined || a.mask_x !== undefined || a.mask_w !== undefined || a.mask_feather !== undefined || a.mask_invert !== undefined) {
+        const cur = o.mask ?? { shape: 'rect' as const, x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+        patch.mask = {
+          ...cur,
+          shape: a.mask_shape !== undefined ? (str(a.mask_shape) as 'rect' | 'ellipse') : cur.shape,
+          x: a.mask_x !== undefined ? clamp(num(a.mask_x, 'mask_x'), -0.5, 1) : cur.x,
+          y: a.mask_y !== undefined ? clamp(num(a.mask_y, 'mask_y'), -0.5, 1) : cur.y,
+          w: a.mask_w !== undefined ? clamp(num(a.mask_w, 'mask_w'), 0.01, 1.5) : cur.w,
+          h: a.mask_h !== undefined ? clamp(num(a.mask_h, 'mask_h'), 0.01, 1.5) : cur.h,
+          feather: a.mask_feather !== undefined ? clamp(num(a.mask_feather, 'mask_feather'), 0, 0.5) : cur.feather,
+          invert: a.mask_invert !== undefined ? !!a.mask_invert : cur.invert,
+          radius: a.mask_radius !== undefined ? clamp(num(a.mask_radius, 'mask_radius'), 0, 0.5) : cur.radius,
+        };
+      }
+      if (a.key_color === 'none') patch.key = undefined;
+      else if (a.key_color !== undefined || a.key_similarity !== undefined || a.key_smoothness !== undefined || a.key_spill !== undefined) {
+        const cur = o.key ?? { color: '#00FF00', similarity: 0.25, smoothness: 0.15, spill: 0.5 };
+        let color = cur.color;
+        if (a.key_color === 'auto') color = (await autoKeyColor(ctx.p, o.mediaId)) ?? bad('Could not sample the corners of that clip.');
+        else if (a.key_color !== undefined) {
+          if (!/^#[0-9a-f]{6}$/i.test(str(a.key_color))) bad('key_color must be "auto", "none" or a hex colour like #00FF00.');
+          color = str(a.key_color).toUpperCase();
+        }
+        patch.key = {
+          color,
+          similarity: a.key_similarity !== undefined ? clamp(num(a.key_similarity, 'key_similarity'), 0, 1) : cur.similarity,
+          smoothness: a.key_smoothness !== undefined ? clamp(num(a.key_smoothness, 'key_smoothness'), 0, 1) : cur.smoothness,
+          spill: a.key_spill !== undefined ? clamp(num(a.key_spill, 'key_spill'), 0, 1) : cur.spill,
+        };
+      }
+      const d = ops.updateClip(v.doc, 'overlay', it.id, patch);
+      save(ctx, d, 'style_overlay', `Styled ${it.id}`);
+      const parts = [patch.blend !== undefined ? `blend ${patch.blend ?? 'normal'}` : '', 'mask' in patch ? (patch.mask ? `${patch.mask.shape} mask` : 'mask removed') : '', 'key' in patch ? (patch.key ? `green screen on ${patch.key.color}` : 'green screen off') : ''].filter(Boolean);
+      return { text: `Layer ${it.id}: ${parts.join(', ') || 'unchanged'}.` };
     },
   },
   {

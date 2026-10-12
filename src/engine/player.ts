@@ -486,8 +486,8 @@ export class Player {
         const img = this.imageFor(id);
         return img ? { image: img, width: img.naturalWidth, height: img.naturalHeight } : undefined;
       },
-      scratch: (w, h) => {
-        const key = `${w}x${h}`;
+      scratch: (w, h, slot = '') => {
+        const key = `${w}x${h}:${slot}`;
         let s = this.scratch.get(key);
         if (!s) {
           const canvas = document.createElement('canvas');
