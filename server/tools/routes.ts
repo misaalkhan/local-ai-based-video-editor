@@ -1,10 +1,17 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import type { Router } from '../http.ts';
 import { sendFile } from '../http.ts';
 import { HttpError, getProject } from '../store.ts';
-import { ensureLibraryDirs, listSfx } from '../library.ts';
+import { addMineSfx, ensureLibraryDirs, listSfx, mineSfxPath, removeMineSfx, setFavouriteSfx } from '../library.ts';
 import { listVoices } from '../tts.ts';
 import { ToolError, callTool } from './index.ts';
 import { searchGifs } from '../gifs.ts';
+import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
+import type { FoundSound } from '../sounds.ts';
+import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
+import { AUDIO_EXT, extOf } from '../probe.ts';
 
 export function register(r: Router): void {
   ensureLibraryDirs();
@@ -22,8 +29,85 @@ export function register(r: Router): void {
     }
   });
 
+  const sfxJson = (s: ReturnType<typeof listSfx>[number]) => ({
+    id: s.id,
+    name: s.name,
+    tags: s.tags,
+    role: s.role,
+    duration: s.duration,
+    source: s.source,
+    set: s.set,
+    favourite: !!s.favourite,
+    credit: soundCredit(s),
+    url: `/api/library/sfx/${encodeURIComponent(s.id)}/file`,
+  });
   r.get('/api/library/sfx', (c) => {
-    c.json({ sfx: listSfx().map((s) => ({ id: s.id, name: s.name, tags: s.tags, duration: s.duration, url: `/api/library/sfx/${encodeURIComponent(s.id)}/file` })) });
+    c.json({ sfx: listSfx().map(sfxJson) });
+  });
+
+  // A sound file dropped onto the Sounds tab goes into the user's own set, timed like the packs.
+  r.post('/api/library/sfx/upload', async (c) => {
+    const name = path.basename(c.query.get('name') ?? 'sound');
+    const ext = extOf(name);
+    if (!AUDIO_EXT.includes(ext)) throw new HttpError(400, `not an audio file: .${ext || '?'}`);
+    const file = mineSfxPath(name, ext);
+    try {
+      await pipeline(c.req, fs.createWriteStream(file));
+      const entry = await addMineSfx(file, name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '));
+      c.json({ sound: sfxJson(entry) }, 201);
+    } catch (err) {
+      fs.rmSync(file, { force: true });
+      throw err;
+    }
+  });
+
+  r.put('/api/library/sfx/:id/favourite', async (c) => {
+    const body = await c.body<{ on?: boolean }>();
+    setFavouriteSfx(c.params.id, !!body.on);
+    c.json({ ok: true });
+  });
+
+  r.delete('/api/library/sfx/:id', (c) => {
+    if (!removeMineSfx(c.params.id)) throw new HttpError(400, 'Only sounds you added can be removed.');
+    c.json({ ok: true });
+  });
+
+  // More sounds from Freesound (key in Settings); a pick is saved into the user's set with its credit.
+  r.get('/api/sounds/search', async (c) => {
+    try {
+      c.json({ sounds: await searchSounds(String(c.query.get('q') ?? ''), 24) });
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+  });
+  r.post('/api/library/sfx/save', async (c) => {
+    const body = await c.body<FoundSound>();
+    if (!body || typeof body.preview !== 'string' || !/^https:\/\/(cdn\.)?freesound\.org\//.test(body.preview)) throw new HttpError(400, 'not a Freesound preview');
+    try {
+      c.json({ sound: sfxJson(await saveSound(body)) }, 201);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+  });
+
+  // Meme templates (Imgflip's public list) and putting one into a project.
+  r.get('/api/memes/templates', async (c) => {
+    try {
+      c.json({ templates: findTemplate(await memeTemplates(), String(c.query.get('q') ?? '')) });
+    } catch (err) {
+      throw new HttpError(502, (err as Error).message);
+    }
+  });
+  r.post('/api/projects/:pid/memes', async (c) => {
+    const p = getProject(c.params.pid);
+    const body = await c.body<{ id?: string }>();
+    const t = (await memeTemplates()).find((m) => m.id === String(body.id ?? ''));
+    if (!t) throw new HttpError(404, 'no such template');
+    try {
+      c.json({ media: await fetchMeme(p, t), template: t }, 201);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
   });
 
   r.get('/api/library/sfx/:id/file', (c) => {

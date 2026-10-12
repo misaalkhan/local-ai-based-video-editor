@@ -56,6 +56,9 @@ function expandPath(p: string): string[] {
   return [abs];
 }
 
+/** Settings as shown to the browser: keys are never sent back, only whether one is set. */
+const masked = (s: Settings): Settings => ({ ...s, tenorKey: s.tenorKey ? '•'.repeat(8) : '', freesoundKey: s.freesoundKey ? '•'.repeat(8) : '' });
+
 export function registerRoutes(r: Router): void {
   r.get('/api/status', (c) => c.json(toolStatus()));
 
@@ -95,7 +98,7 @@ export function registerRoutes(r: Router): void {
   r.get('/api/settings', (c) => {
     const s = getSettings();
     // The key itself never goes back to the browser, only whether one is set.
-    c.json({ settings: { ...s, tenorKey: s.tenorKey ? '•'.repeat(8) : '' }, exportDefault: EXPORT_DIR });
+    c.json({ settings: masked(s), exportDefault: EXPORT_DIR });
   });
 
   r.patch('/api/settings', async (c) => {
@@ -104,8 +107,9 @@ export function registerRoutes(r: Router): void {
     if (body.assistantModel && ['sonnet', 'opus', 'haiku'].includes(body.assistantModel)) patch.assistantModel = body.assistantModel;
     if (typeof body.exportDir === 'string') patch.exportDir = body.exportDir.trim().replace(/^~(?=\/|$)/, process.env.HOME ?? '~');
     if (typeof body.tenorKey === 'string' && !/^•+$/.test(body.tenorKey)) patch.tenorKey = body.tenorKey.trim();
+    if (typeof body.freesoundKey === 'string' && !/^•+$/.test(body.freesoundKey)) patch.freesoundKey = body.freesoundKey.trim();
     const s = saveSettings(patch);
-    c.json({ settings: { ...s, tenorKey: s.tenorKey ? '•'.repeat(8) : '' }, exportDefault: EXPORT_DIR });
+    c.json({ settings: masked(s), exportDefault: EXPORT_DIR });
   });
 
   r.patch('/api/studio/profile', async (c) => {

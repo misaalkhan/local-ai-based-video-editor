@@ -21,6 +21,9 @@ import { analyzeFaces, faceCoverage } from '../faces.ts';
 import { listLibrary, listSfx, searchSfx } from '../library.ts';
 import { listVoices, synthesize } from '../tts.ts';
 import { fetchGif, found as foundGifs, searchGifs } from '../gifs.ts';
+import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
+import type { FoundSound } from '../sounds.ts';
+import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
 import { findRecipe, getRecipes, getSettings, saveRecipe } from '../studio.ts';
 import { findBeats } from '../../shared/beats.ts';
 import { LOOKS } from '../../shared/draw.ts';
@@ -77,6 +80,9 @@ const S = (description: string, values?: string[]) => ({ type: 'string', descrip
 const B = (description: string) => ({ type: 'boolean', description });
 
 const after = (doc: ProjectDoc) => `The video is now ${sec(contentDuration(doc))}s long.`;
+
+/** Sounds found by the last find_sound_online call, by Freesound id. */
+const foundSounds = new Map<number, FoundSound>();
 
 /** Media the assistant has looked at (inspect_media) this turn, by project; cleared when a turn starts. */
 export const seen = new Map<ID, Set<ID>>();
@@ -1106,6 +1112,64 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
     },
   },
   {
+    name: 'find_sound_online',
+    description: 'When the built-in sounds (list_library kind=sfx, add_sfx query) have nothing right, search Freesound for more (needs the Freesound key from Settings). Only CC0 and CC BY sounds are returned. Pick one and call save_sound; it then works with add_sfx like any other sound.',
+    schema: obj({ query: S('What the sound should be: "cash register", "vine boom", "bruh", "windows error".'), limit: N('How many to list, default 8.') }, ['query']),
+    label: (a) => `Searching sounds for "${str(a.query)}"`,
+    readOnly: true,
+    run: async (_ctx, a) => {
+      const q = str(a.query).trim();
+      const results = await searchSounds(q, optNum(a.limit, 'limit') ?? 8).catch((err: Error) => bad(err.message));
+      if (!results.length) return { text: `No sounds found for "${q}". Try a broader word.` };
+      foundSounds.clear();
+      for (const r of results) foundSounds.set(r.id, r);
+      return { text: `Sounds for "${q}" (use the id with save_sound):\n${results.map((r) => `  ${r.id}  "${r.name}"  ${r.duration}s, by ${r.author}, ${r.licence}${r.tags.length ? `, tags: ${r.tags.join(' ')}` : ''}`).join('\n')}` };
+    },
+  },
+  {
+    name: 'save_sound',
+    description: 'Save a sound from find_sound_online into the user\'s sound library, then place it with add_sfx (sfx_id from the result). A CC BY sound comes with a credit line for the caption; pass it on.',
+    schema: obj({ sound_id: N('Id from find_sound_online.') }, ['sound_id']),
+    label: () => 'Saving a sound',
+    run: async (_ctx, a) => {
+      const f = foundSounds.get(Number(a.sound_id));
+      if (!f) bad(`No sound with id ${a.sound_id} in the last search; call find_sound_online first.`);
+      const entry = await saveSound(f).catch((err: Error) => bad(err.message));
+      const credit = soundCredit(entry);
+      return { text: `Saved "${entry.name}" as ${entry.id} (${entry.duration}s).${credit ? ` Credit line for the caption: ${credit}` : ''} Place it with add_sfx sfx_id=${entry.id}.` };
+    },
+  },
+  {
+    name: 'add_meme',
+    description: `Put a classic meme template on screen (from Imgflip's public list: "drake", "distracted boyfriend", "two buttons", "change my mind", "expanding brain", "is this a pigeon", "woman yelling at cat", "surprised pikachu"...) as a full-frame b-roll shot with top and bottom text in the meme style, over the footage for the time given. A meme is a punchline device: one per reel, on the beat, 2-3 s, text of 2-6 words per line. Give start and duration, or start_word and end_word.`,
+    schema: obj({ template: S('Name or part of the name of the template.'), top: S('Top line.'), bottom: S('Bottom line.'), ...WHEN }, ['template']),
+    label: (a) => `Adding a "${str(a.template)}" meme`,
+    run: async (ctx, a) => {
+      const list = await memeTemplates().catch((err: Error) => bad(err.message));
+      const t = findTemplate(list, str(a.template))[0];
+      if (!t) bad(`No template matches "${str(a.template)}". Popular ones: ${list.slice(0, 12).map((m) => m.name).join(', ')}.`);
+      const v = view(ctx.p);
+      const { start, duration } = span(ctx.p, a, v, 3);
+      const m = await fetchMeme(ctx.p, t).catch((err: Error) => bad(err.message));
+      const W = v.doc.settings.width;
+      const H = v.doc.settings.height;
+      const imgAspect = t.width / t.height;
+      const top = imgAspect >= W / H ? 0.5 - (W / imgAspect / H) / 2 : 0;
+      const bottom = imgAspect >= W / H ? 0.5 + (W / imgAspect / H) / 2 : 1;
+      let d = ops.addOverlay(v.doc, m, { start, duration, framing: { fit: 'contain', focusX: 0.5, focusY: 0.5, scale: 1, blurFill: true }, muted: true, name: m.name, createdBy: ctx.messageId }).doc;
+      const overlayId = d.overlays[d.overlays.length - 1].id;
+      const ids: string[] = [];
+      for (const [text, y] of [[str(a.top), top + 0.065], [str(a.bottom), bottom - 0.065]] as [string, number][]) {
+        if (!text.trim()) continue;
+        const r = ops.addGraphic(d, { preset: 'meme', props: { text: text.trim(), size: 0.062, maxWidth: 0.94 }, start, duration, y, name: `Meme: ${clip(text.trim(), 24)}`, createdBy: ctx.messageId });
+        d = r.doc;
+        ids.push(r.item.id);
+      }
+      save(ctx, d, 'add_meme', `Meme "${t.name}" at ${sec(start)}s`);
+      return { text: `Added the "${t.name}" meme as b-roll ${overlayId} ${sec(start)}-${sec(start + duration)}s${ids.length ? ` with text ${ids.join(', ')}` : ''}.` };
+    },
+  },
+  {
     name: 'find_gif',
     description: 'Search Tenor for reaction GIFs (needs the Tenor key from Settings). Returns candidates with ids and descriptions; pick one and call add_gif. Describe the reaction or joke, not the subject: "facepalm", "mind blown", "slow clap", "confused math lady", "this is fine".',
     schema: obj({ query: S('What the GIF should show.'), limit: N('How many to list, default 6.') }, ['query']),
@@ -1197,7 +1261,8 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       const gainDb = clamp(voicePeakDb(ctx.p, v) + offset + 1.5 + (optNum(a.gain_db, 'gain_db') ?? 0), -40, 6);
       const r = ops.addAudio(v.doc, m, { start: Math.max(0, at - entry.hit - 0.015), role: 'sfx', volume: dbToGain(gainDb), name: str(a.name) || entry.name, createdBy: ctx.messageId });
       save(ctx, r.doc, 'add_sfx', `${entry.name} at ${sec(at)}s`);
-      return { text: `Added "${entry.name}" (${r.clip.id}) landing at ${sec(at)}s, ${gainDb.toFixed(0)} dB.` };
+      const credit = soundCredit(entry);
+      return { text: `Added "${entry.name}" (${r.clip.id}) landing at ${sec(at)}s, ${gainDb.toFixed(0)} dB.${credit ? ` This sound needs a credit line in the post's caption; give it to the user: ${credit}` : ''}` };
     },
   },
   {

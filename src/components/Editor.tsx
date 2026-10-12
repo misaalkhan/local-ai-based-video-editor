@@ -17,7 +17,9 @@ import { TranscriptPanel } from './TranscriptPanel.tsx';
 import { ExportDialog } from './ExportDialog.tsx';
 import { HistoryDialog } from './HistoryDialog.tsx';
 import { MediaPanel } from '../panels/MediaPanel.tsx';
-import { SoundsPanel } from '../panels/SoundsPanel.tsx';
+import { MusicPanel } from '../panels/MusicPanel.tsx';
+import { SfxPanel } from '../panels/SfxPanel.tsx';
+import { MemesPanel } from '../panels/MemesPanel.tsx';
 import { CaptionsPanel } from '../panels/CaptionsPanel.tsx';
 import { TextPanel } from '../panels/TextPanel.tsx';
 import { GraphicsPanel } from '../panels/GraphicsPanel.tsx';
@@ -27,7 +29,9 @@ import { EditPanel } from '../panels/EditPanel.tsx';
 
 const RAIL: { id: LeftPanel; icon: IconName; label: string }[] = [
   { id: 'media', icon: 'media', label: 'Media' },
-  { id: 'sounds', icon: 'music', label: 'Sounds' },
+  { id: 'music', icon: 'music', label: 'Music' },
+  { id: 'sounds', icon: 'volume', label: 'Sounds' },
+  { id: 'memes', icon: 'sparkles', label: 'Memes' },
   { id: 'captions', icon: 'captions', label: 'Captions' },
   { id: 'text', icon: 'text', label: 'Text' },
   { id: 'graphics', icon: 'layers', label: 'Overlays' },
@@ -215,7 +219,9 @@ export function Editor({ projectId }: { projectId: string }) {
         </nav>
         <aside className="leftpanel">
           {ui.left === 'media' && <MediaPanel />}
-          {ui.left === 'sounds' && <SoundsPanel />}
+          {ui.left === 'music' && <MusicPanel />}
+          {ui.left === 'sounds' && <SfxPanel />}
+          {ui.left === 'memes' && <MemesPanel />}
           {ui.left === 'captions' && <CaptionsPanel />}
           {ui.left === 'text' && <TextPanel />}
           {ui.left === 'graphics' && <GraphicsPanel />}

@@ -310,7 +310,7 @@ export interface MediaAsset {
   /** Share of the audio that is above the noise floor, 0..1. */
   soundRatio?: number;
   /** Where the file came from when it was not added by the user. */
-  origin?: 'sfx' | 'voiceover' | 'library' | 'gif';
+  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme';
   /** How many different voices were heard, when speaker labels are available. */
   speakers?: number;
   /** Short handle the chat agent uses for this file's words ("a", "b", ...). */
@@ -512,6 +512,8 @@ export interface Settings {
   exportDir: string;
   /** Tenor API key for GIF search; empty means GIF search is off. */
   tenorKey: string;
+  /** Freesound API key for searching more sounds; empty means the search is off. */
+  freesoundKey?: string;
   updatedAt: number;
 }
 

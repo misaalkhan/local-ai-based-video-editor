@@ -21,6 +21,98 @@ export interface SfxEntry {
   /** Seconds into the file at which the sound "lands"; that moment is what gets aligned to the picture. */
   hit: number;
   source: 'built-in' | 'pack' | 'yours';
+  /** Which pack a downloaded sound belongs to. */
+  set?: 'comedy' | 'social';
+  /** Where a saved sound came from, for the credit line when its licence asks for one. */
+  credit?: { author: string; licence: string; url: string };
+  favourite?: boolean;
+}
+
+/** Sounds the user saved or dropped in: `library/sfx/mine/` with a manifest carrying their measured timing and credits. */
+interface MineEntry {
+  id: string;
+  name: string;
+  tags: string[];
+  role: SfxRole;
+  file: string;
+  duration: number;
+  hit: number;
+  credit?: SfxEntry['credit'];
+}
+
+const MINE_DIR = () => path.join(LIBRARY_DIR, 'sfx', 'mine');
+const MINE_FILE = () => path.join(MINE_DIR(), 'mine.json');
+const FAVOURITES_FILE = () => path.join(LIBRARY_DIR, 'sfx', 'favourites.json');
+
+function readJson<T>(file: string, fallback: T): T {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8')) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export function favouriteSfx(): Set<string> {
+  return new Set(readJson<string[]>(FAVOURITES_FILE(), []));
+}
+
+export function setFavouriteSfx(id: string, on: boolean): void {
+  const set = favouriteSfx();
+  if (on) set.add(id);
+  else set.delete(id);
+  fs.mkdirSync(path.join(LIBRARY_DIR, 'sfx'), { recursive: true });
+  fs.writeFileSync(FAVOURITES_FILE(), JSON.stringify([...set], null, 1));
+}
+
+/** Where a sound lands: its loudest 10 ms, unless it is a long bed, which starts at the cue. */
+export async function measureSfx(file: string, role: SfxRole): Promise<{ duration: number; hit: number }> {
+  const { analyzePcm, decodePcm } = await import('./analyze.ts');
+  const { ENVELOPE_HOP } = await import('../shared/silence.ts');
+  const a = analyzePcm(await decodePcm(file));
+  let hit = 0;
+  let best = -1;
+  a.envelope.forEach((v, i) => {
+    if (v > best) {
+      best = v;
+      hit = i * ENVELOPE_HOP;
+    }
+  });
+  if (a.duration > 4 && role !== 'impact') hit = 0;
+  return { duration: Math.round(a.duration * 100) / 100, hit: Math.round(hit * 1000) / 1000 };
+}
+
+/** Add a sound file (already on disk inside mine/) to the user's manifest, measuring its timing. */
+export async function addMineSfx(file: string, name: string, extra: { tags?: string[]; credit?: SfxEntry['credit'] } = {}): Promise<SfxEntry> {
+  const words = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const tags = [...new Set([...words, ...(extra.tags ?? [])])];
+  const role = guessRole(tags);
+  const { duration, hit } = await measureSfx(file, role);
+  const base = path.basename(file);
+  const id = `mine-${base.toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9]+/g, '-')}`;
+  const list = readJson<MineEntry[]>(MINE_FILE(), []).filter((m) => m.id !== id);
+  const entry: MineEntry = { id, name, tags, role, file: base, duration, hit, credit: extra.credit };
+  list.push(entry);
+  fs.writeFileSync(MINE_FILE(), JSON.stringify(list, null, 1));
+  return { ...entry, file, source: 'yours' };
+}
+
+export function removeMineSfx(id: string): boolean {
+  const list = readJson<MineEntry[]>(MINE_FILE(), []);
+  const entry = list.find((m) => m.id === id);
+  if (!entry) return false;
+  fs.rmSync(path.join(MINE_DIR(), entry.file), { force: true });
+  fs.writeFileSync(MINE_FILE(), JSON.stringify(list.filter((m) => m.id !== id), null, 1));
+  setFavouriteSfx(id, false);
+  return true;
+}
+
+/** A free file name inside mine/ for a new sound. */
+export function mineSfxPath(name: string, ext: string): string {
+  fs.mkdirSync(MINE_DIR(), { recursive: true });
+  const base = name.toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'sound';
+  let file = path.join(MINE_DIR(), `${base}.${ext}`);
+  for (let n = 2; fs.existsSync(file); n++) file = path.join(MINE_DIR(), `${base}-${n}.${ext}`);
+  return file;
 }
 
 const SYNONYMS: Record<string, string[]> = {
@@ -84,6 +176,13 @@ export function listSfx(): SfxEntry[] {
   } catch {
     // no pack yet (run: node scripts/sounds.ts)
   }
+  // Sounds saved from the app or dropped onto the Sounds tab, with measured timing.
+  for (const m of readJson<MineEntry[]>(MINE_FILE(), [])) {
+    const file = path.join(MINE_DIR(), m.file);
+    if (!fs.existsSync(file)) continue;
+    packed.add(file);
+    out.push({ ...m, file, source: 'yours' });
+  }
   for (const file of listDir(path.join(LIBRARY_DIR, 'sfx'), AUDIO_EXT)) {
     if (packed.has(file)) continue;
     const base = path.basename(file, path.extname(file));
@@ -99,6 +198,8 @@ export function listSfx(): SfxEntry[] {
       source: 'yours',
     });
   }
+  const fav = favouriteSfx();
+  for (const e of out) if (fav.has(e.id)) e.favourite = true;
   return out;
 }
 
@@ -139,5 +240,5 @@ export function listLibrary(kind?: 'music' | 'broll'): LibraryFile[] {
 }
 
 export function ensureLibraryDirs(): void {
-  for (const d of ['sfx', 'music', 'broll']) fs.mkdirSync(path.join(LIBRARY_DIR, d), { recursive: true });
+  for (const d of ['sfx', 'sfx/mine', 'music', 'broll']) fs.mkdirSync(path.join(LIBRARY_DIR, d), { recursive: true });
 }

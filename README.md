@@ -15,7 +15,7 @@ Requirements: macOS on Apple Silicon, [Homebrew](https://brew.sh), Node 23.6 or 
 
 **Home.** Drop clips (or pick a whole folder with "Choose files on this Mac", which uses the files where they are), type what you want, choose a format, press Start. The project opens, the clips are prepared (preview copy, word-timed transcript, face tracking) and your request runs. "Start with an empty project" skips the request.
 
-**The editor.** Left: Media, Sounds, Captions, Text, Overlays, Effects, Transitions and Edit. Middle: the preview (Fit or zoom in). Right: the Assistant and the Transcript. Bottom: the timeline.
+**The editor.** Left: Media, Music, Sounds, Memes, Captions, Text, Overlays, Effects, Transitions and Edit. Middle: the preview (Fit or zoom in). Right: the Assistant and the Transcript. Bottom: the timeline.
 
 - Assistant: describe the edit ("make this a tight 40-second reel with a hook"). It reads the transcript, cuts, adds captions and graphics, then looks at rendered frames of its own work and fixes what is off. Every request can be undone from its message. Stop ends a run.
 - Transcript: select words and press delete to cut them from the video; cut words stay struck through and can be restored. Fix a misheard word, emphasise a word in the captions, move a sentence earlier or to the start, and choose between repeated takes. When more than one person talks, the transcript shows who (S1, S2) at each change of speaker.
@@ -23,12 +23,14 @@ Requirements: macOS on Apple Silicon, [Homebrew](https://brew.sh), Node 23.6 or 
 - Captions come from the transcript and follow every cut. Fourteen styles (pop, outline, one word at a time, karaoke, highlight, underline, neon glow, glass, typewriter, band, retro, comic, clean, boxed), any of the bundled fonts, and style recipes (a whole look: captions, fonts, colour, pacing, music level) that you can save from a project and apply to the next.
 - Text: sixteen styles (hook, title, meme, comic, sticker, neon, handwritten, marker, quote, glitch, gradient, typewriter and more) with entrances (pop, bounce, zoom, typewriter, slides).
 - Effects: punch-ins, slow push-ins, shake, framing (follow the face, fill or show the whole picture with a blurred background), nineteen colour looks plus warmth, vignette, sepia, film grain, cinema bars and mirror. Transitions: fade, dip, flash, slides, whip pan, zoom, blur, glitch. Picture-in-picture for b-roll. Overlays: animated cards, labels, counters, and a reaction GIF search (Tenor key in Settings) that drops a small looping GIF at the playhead, clear of the face.
-- Sounds: your music or the bundled library (named by mood), a comedy and reaction sound pack, voiceover in 26 natural voices (English, Hindi, Spanish, French, Italian, Portuguese, Japanese and Chinese) or the Mac's own, and the final mix: loudness normalisation, noise reduction and voice clean-up on export.
+- Sounds: a library of 100 sound effects (the social set: keyboard, phone typing, pings, shutters, coins, cash, record scratch, doorbell; the comedy set: vine boom, sad trombone, rimshot, crickets, laughs, buzzers) with search, favourites and shelves. Drop your own sound files on the tab to keep them for every project, and search Freesound for more (free key in Settings; CC0 and CC BY only, credit lines kept).
+- Memes: the meme sounds, reaction GIF search, meme templates (Imgflip's public list) with top and bottom text in the meme style, and the meme text styles.
+- Music: your music or the bundled library (named by mood), voiceover in 26 natural voices (English, Hindi, Spanish, French, Italian, Portuguese, Japanese and Chinese) or the Mac's own, and the final mix: loudness normalisation, noise reduction and voice clean-up on export.
 - Export: 9:16, 16:9, 1:1 or 4:5, 720p to 4K, with the sound brought to -14 LUFS. Files go to `~/Documents/Local Studio` (change it in Settings).
 
 **Plan** (button on the home screen). Your footage library in one place: drop everything you have shot and the planner describes each clip. It asks about your account, audience, platforms, goals and capacity, saves a profile, keeps notes on what works on each platform, turns posts you like into style cards, and builds a dated content plan with a hook, storyline, footage, caption and hashtags per post. "Make it" creates the project and queues the edit, which runs when you open it. Nothing is posted anywhere by the app.
 
-**Settings** (home screen): which Claude model the assistants use, the export folder, and a Tenor key for reaction GIF search.
+**Settings** (home screen): which Claude model the assistants use, the export folder, a Tenor key for reaction GIF search and a Freesound key for sound search.
 
 ## Languages
 
@@ -42,7 +44,7 @@ If your videos are in more than one language, set them on the Plan page (You →
 
 ## Licences
 
-The code is under the MIT License (`LICENSE`). Fonts in `fonts/` are under the SIL Open Font License or Apache 2.0 (`fonts/LICENSE-*.txt`). Bundled music is by Kevin MacLeod under CC BY 4.0; the assistant gives you the credit line for the caption when it uses a track (`library/music/LICENSE-music.txt`). The sound pack comes from Mixkit under its free licence (`library/sfx/LICENSE-pack.txt`). Model files keep their own licences.
+The code is under the MIT License (`LICENSE`). Fonts in `fonts/` are under the SIL Open Font License or Apache 2.0 (`fonts/LICENSE-*.txt`). Bundled music is by Kevin MacLeod under CC BY 4.0; the assistant gives you the credit line for the caption when it uses a track (`library/music/LICENSE-music.txt`). The sound packs come from Mixkit under its free licence (`library/sfx/LICENSE-pack.txt`); sounds saved from Freesound are CC0 or CC BY and keep their author and licence in `library/sfx/mine/mine.json`. Meme templates are fetched from Imgflip's public list when picked and are not bundled. Model files keep their own licences.
 
 ## Development
 

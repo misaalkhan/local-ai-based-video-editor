@@ -31,7 +31,7 @@ function write(name: string, value: unknown): void {
   fs.renameSync(`${file}.tmp`, file);
 }
 
-const EMPTY_SETTINGS: Settings = { assistantModel: 'sonnet', exportDir: '', tenorKey: '', updatedAt: 0 };
+const EMPTY_SETTINGS: Settings = { assistantModel: 'sonnet', exportDir: '', tenorKey: '', freesoundKey: '', updatedAt: 0 };
 
 export function getSettings(): Settings {
   return { ...EMPTY_SETTINGS, ...read<Partial<Settings>>('settings.json', {}) };

@@ -67,6 +67,26 @@ export interface Status {
   model: string;
 }
 
+export interface FoundSound {
+  id: number;
+  name: string;
+  author: string;
+  licence: string;
+  url: string;
+  duration: number;
+  preview: string;
+  tags: string[];
+}
+
+export interface MemeTemplate {
+  id: string;
+  name: string;
+  url: string;
+  width: number;
+  height: number;
+  boxes: number;
+}
+
 export interface GifEntry {
   id: string;
   url: string;
@@ -80,8 +100,14 @@ export interface SfxEntry {
   id: string;
   name: string;
   tags: string[];
+  role?: string;
   duration: number;
   url: string;
+  source?: 'built-in' | 'pack' | 'yours';
+  set?: 'comedy' | 'social';
+  favourite?: boolean;
+  /** Credit line for the post when the sound's licence asks for one. */
+  credit?: string;
 }
 
 export const api = {
@@ -139,6 +165,12 @@ export const api = {
   sfx: () => request<{ sfx: SfxEntry[] }>('GET', '/api/library/sfx').then((r) => r.sfx),
   voices: () => request<{ voices: { id: string; name: string }[] }>('GET', '/api/library/voices').then((r) => r.voices),
   gifs: (q: string) => request<{ gifs: GifEntry[] }>('GET', `/api/gifs?q=${encodeURIComponent(q)}`).then((r) => r.gifs),
+  sfxFavourite: (id: string, on: boolean) => request('PUT', `/api/library/sfx/${encodeURIComponent(id)}/favourite`, { on }),
+  sfxRemove: (id: string) => request('DELETE', `/api/library/sfx/${encodeURIComponent(id)}`),
+  soundsSearch: (q: string) => request<{ sounds: FoundSound[] }>('GET', `/api/sounds/search?q=${encodeURIComponent(q)}`).then((r) => r.sounds),
+  sfxSave: (found: FoundSound) => request<{ sound: SfxEntry }>('POST', '/api/library/sfx/save', found).then((r) => r.sound),
+  memeTemplates: (q: string) => request<{ templates: MemeTemplate[] }>('GET', `/api/memes/templates?q=${encodeURIComponent(q)}`).then((r) => r.templates),
+  addMeme: (projectId: ID, id: string) => request<{ media: MediaAsset; template: MemeTemplate }>('POST', `/api/projects/${projectId}/memes`, { id }),
 };
 
 /** Upload one file as the raw request body, reporting progress as it goes. */
@@ -154,6 +186,26 @@ export function uploadFile(projectId: ID, file: File, onProgress?: (fraction: nu
       try {
         const data = JSON.parse(xhr.responseText) as { media?: MediaAsset; error?: string };
         if (xhr.status >= 200 && xhr.status < 300 && data.media) resolve(data.media);
+        else reject(new ApiError(xhr.status, data.error ?? 'upload failed'));
+      } catch {
+        reject(new ApiError(xhr.status, 'upload failed'));
+      }
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'upload failed: the server did not answer'));
+    xhr.send(file);
+  });
+}
+
+/** A sound file dropped onto the Sounds tab, saved into the library (not into a project). */
+export function uploadSound(file: File): Promise<SfxEntry> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/library/sfx/upload?name=${encodeURIComponent(file.name)}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText) as { sound?: SfxEntry; error?: string };
+        if (xhr.status >= 200 && xhr.status < 300 && data.sound) resolve(data.sound);
         else reject(new ApiError(xhr.status, data.error ?? 'upload failed'));
       } catch {
         reject(new ApiError(xhr.status, 'upload failed'));

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api.ts';
-import type { SfxEntry } from '../api.ts';
 import { setSettings } from '../../shared/ops.ts';
 import { player } from '../engine/player.ts';
 import { useDoc, useStore } from '../store.ts';
@@ -8,10 +7,9 @@ import { addToTimeline, draggable, edit, formatDuration, importFromDisk, looksLi
 import { Icon, Spinner } from '../icons.tsx';
 import { Button, Field, Section, Select, Toggle } from '../ui.tsx';
 
-export function SoundsPanel() {
+export function MusicPanel() {
   const doc = useDoc()!;
   const media = useStore((s) => s.media);
-  const [sfx, setSfx] = useState<SfxEntry[] | null>(null);
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
   const [voice, setVoice] = useState('');
   const [line, setLine] = useState('');
@@ -19,7 +17,6 @@ export function SoundsPanel() {
   const audio = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    api.sfx().then(setSfx).catch(() => setSfx([]));
     api
       .voices()
       .then((v) => {
@@ -43,7 +40,7 @@ export function SoundsPanel() {
   return (
     <div className="panel">
       <header className="panel-head">
-        <h2>Sounds</h2>
+        <h2>Music and voice</h2>
       </header>
       <div className="panel-body">
         <Section title="Music" action={<Button size="sm" icon="plus" onClick={() => void importFromDisk()}>Add</Button>}>
@@ -60,27 +57,6 @@ export function SoundsPanel() {
                   </span>
                   <Icon name="plus" size={14} />
                 </button>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        <Section title="Sound effects">
-          {sfx === null ? (
-            <Spinner />
-          ) : sfx.length === 0 ? (
-            <div className="hint">No sound effects are installed. Run <code>npm run setup</code> to create the built-in set, or put your own files in the <code>library/sfx</code> folder.</div>
-          ) : (
-            <div className="sfx-grid">
-              {sfx.map((s) => (
-                <div key={s.id} className="sfx">
-                  <button type="button" className="sfx-play" onClick={() => preview(s.url)} title="Listen" aria-label={`Listen to ${s.name}`}>
-                    <Icon name="play" size={11} />
-                  </button>
-                  <button type="button" className="sfx-name" onClick={() => void runTool('add_sfx', { sfx_id: s.id, at: player.time })} title={`Click to add at the playhead, or drag onto the timeline · ${s.tags.join(', ')}`} {...draggable({ kind: 'sfx', id: s.id })}>
-                    {s.name}
-                  </button>
-                </div>
               ))}
             </div>
           )}
