@@ -10,7 +10,7 @@ import type { MainSeg, Rect, Scene, VisualRef } from './timeline.ts';
 import { clamp, framingAt, layerGeometry, sceneAt } from './timeline.ts';
 import { fontString } from './fonts.ts';
 import type { Ctx2D, DrawableImage } from './graphics.ts';
-import { clearShadow, drawGraphic, easeOutBack, easeOutCubic, isRTL, refSize, roundRect, setShadow } from './graphics.ts';
+import { clearShadow, drawGraphic, easeInOut, easeOutBack, easeOutCubic, isRTL, refSize, roundRect, setShadow } from './graphics.ts';
 
 /** A picture for one layer, possibly covering only part of the media and at any resolution. */
 export interface LayerImage {
@@ -58,7 +58,43 @@ function fxFilter(fx: ClipFx | undefined, W: number): string {
   if (fx.saturation !== undefined && fx.saturation !== 1) parts.push(`saturate(${fx.saturation.toFixed(3)})`);
   if (fx.grayscale) parts.push(`grayscale(${clamp(fx.grayscale, 0, 1).toFixed(3)})`);
   if (fx.blur) parts.push(`blur(${(fx.blur * W).toFixed(2)}px)`);
+  if (fx.sepia) parts.push(`sepia(${clamp(fx.sepia, 0, 1).toFixed(3)})`);
   return parts.join(' ');
+}
+
+/**
+ * Film grain: a tile of seeded noise laid over the picture. The seed comes
+ * from the frame time, so the preview and the export show the same grain and
+ * it still changes from frame to frame.
+ */
+function drawGrain(env: Env, amount: number, t: number, dst: Rect, alpha: number): void {
+  const { ctx, o } = env;
+  const size = 96;
+  const sc = o.provider.scratch?.(size, size);
+  if (!sc) return;
+  const sctx = sc.ctx as Ctx2D & { createImageData(w: number, h: number): { data: Uint8ClampedArray }; putImageData(d: unknown, x: number, y: number): void };
+  if (typeof sctx.createImageData !== 'function') return;
+  const img = sctx.createImageData(size, size);
+  let x = (Math.floor(t * 24) * 2654435761 + 12345) >>> 0;
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    x = (Math.imul(x, 1664525) + 1013904223) >>> 0;
+    const v = 96 + (x >>> 24) / 2;
+    d[i] = v;
+    d[i + 1] = v;
+    d[i + 2] = v;
+    d[i + 3] = 255;
+  }
+  sctx.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = alpha * clamp(amount, 0, 1) * 0.8;
+  const pattern = ctx.createPattern(sc.canvas, 'repeat');
+  if (pattern) {
+    ctx.fillStyle = pattern;
+    ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
+  }
+  ctx.restore();
 }
 
 interface Env {
@@ -66,6 +102,8 @@ interface Env {
   W: number;
   H: number;
   o: RenderOptions;
+  /** Timeline time of the frame being drawn. */
+  t: number;
 }
 
 /** Draw a media clip's picture into the frame. Returns false when the picture is not available. */
@@ -103,9 +141,16 @@ function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: 
   const filter = fxFilter(ref.clip.fx, W * o.pixelScale);
   if (filter && 'filter' in ctx) ctx.filter = filter;
   ctx.globalAlpha = alpha;
-  ctx.drawImage(img.image, s.x, s.y, s.w, s.h, dst.x, dst.y, dst.w, dst.h);
-  if (filter && 'filter' in ctx) ctx.filter = 'none';
   const fx = ref.clip.fx;
+  if (fx?.flip) {
+    // Mirror within the picture's own area.
+    ctx.save();
+    ctx.translate(2 * dst.x + dst.w, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img.image, s.x, s.y, s.w, s.h, dst.x, dst.y, dst.w, dst.h);
+    ctx.restore();
+  } else ctx.drawImage(img.image, s.x, s.y, s.w, s.h, dst.x, dst.y, dst.w, dst.h);
+  if (filter && 'filter' in ctx) ctx.filter = 'none';
   // Warmth tints the picture towards orange or blue; a vignette darkens the edges. Both are drawn over the clip's own area.
   if (fx?.warmth) {
     ctx.save();
@@ -128,6 +173,16 @@ function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: 
     ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
     ctx.restore();
   }
+  if (fx?.grain) drawGrain(env, fx.grain, env.t, dst, alpha);
+  if (fx?.letterbox) {
+    // Cinema bars: across the whole frame for the main picture, within the picture for an overlay.
+    const area = ref.role === 'main' ? { x: 0, y: 0, w: W, h: H } : dst;
+    const bar = clamp(fx.letterbox, 0, 0.4) * area.h;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(area.x, area.y, area.w, bar);
+    ctx.fillRect(area.x, area.y + area.h - bar, area.w, bar);
+  }
   ctx.globalAlpha = 1;
   return true;
 }
@@ -142,6 +197,16 @@ export const LOOKS: Record<string, { label: string; fx: ClipFx }> = {
   moody: { label: 'Moody', fx: { brightness: 0.92, contrast: 1.15, saturation: 0.85, warmth: -0.2, vignette: 0.6 } },
   cinematic: { label: 'Cinematic', fx: { contrast: 1.12, saturation: 0.9, warmth: 0.15, vignette: 0.35 } },
   bw: { label: 'Black and white', fx: { grayscale: 1, contrast: 1.1 } },
+  golden: { label: 'Golden hour', fx: { brightness: 1.04, contrast: 1.04, saturation: 1.15, warmth: 0.75, vignette: 0.25 } },
+  teal: { label: 'Teal and orange', fx: { contrast: 1.12, saturation: 1.2, warmth: 0.3, vignette: 0.2 } },
+  pastel: { label: 'Pastel', fx: { brightness: 1.08, contrast: 0.85, saturation: 0.75, warmth: 0.2 } },
+  punchy: { label: 'Punchy', fx: { contrast: 1.2, saturation: 1.45, vignette: 0.15 } },
+  noir: { label: 'Noir', fx: { grayscale: 1, contrast: 1.3, brightness: 0.95, vignette: 0.65, grain: 0.35 } },
+  film: { label: 'Film', fx: { contrast: 1.06, saturation: 0.92, warmth: 0.2, grain: 0.4, vignette: 0.3 } },
+  sepia: { label: 'Sepia', fx: { sepia: 0.85, contrast: 1.05, vignette: 0.35 } },
+  dreamy: { label: 'Dreamy', fx: { brightness: 1.07, contrast: 0.9, saturation: 0.95, warmth: 0.25, blur: 0.0015 } },
+  bleach: { label: 'Bleach', fx: { brightness: 1.1, contrast: 1.22, saturation: 0.55 } },
+  cinema: { label: 'Widescreen', fx: { contrast: 1.1, saturation: 0.92, warmth: 0.1, letterbox: 0.12, vignette: 0.3 } },
 };
 
 function drawMainSeg(env: Env, seg: MainSeg, ref: VisualRef | undefined, img: LayerImage | undefined, alpha: number): void {
@@ -176,29 +241,91 @@ function drawMain(env: Env, scene: Scene, layout: MainSeg[], fps: number): void 
   const drawFrom = (alpha = 1) => drawMainSeg(env, tr.from, fromRef, o.provider.frozen?.(tr.from), alpha);
   const p = easeOutCubic(tr.p);
   switch (tr.type) {
-    case 'dip': {
-      // Out to black over the first half, in from black over the second.
+    case 'dip':
+    case 'flash': {
+      // Out to black (or white) over the first half, back in over the second.
       if (tr.p < 0.5) drawFrom();
       else drawCurrent();
-      ctx.globalAlpha = 1 - Math.abs(tr.p - 0.5) * 2;
-      ctx.fillStyle = '#000000';
+      const k = 1 - Math.abs(tr.p - 0.5) * 2;
+      ctx.globalAlpha = tr.type === 'flash' ? Math.pow(k, 0.6) : k;
+      ctx.fillStyle = tr.type === 'flash' ? '#FFFFFF' : '#000000';
       ctx.fillRect(0, 0, W, H);
       ctx.globalAlpha = 1;
       break;
     }
     case 'slide-left':
     case 'slide-right':
-    case 'slide-up': {
-      const dx = tr.type === 'slide-left' ? -1 : tr.type === 'slide-right' ? 1 : 0;
+    case 'slide-up':
+    case 'whip': {
+      const dx = tr.type === 'slide-left' || tr.type === 'whip' ? -1 : tr.type === 'slide-right' ? 1 : 0;
       const dy = tr.type === 'slide-up' ? -1 : 0;
+      // A whip pan: both pictures streak sideways, blurred most at the middle of the move.
+      const whip = tr.type === 'whip';
+      const q = whip ? easeInOut(tr.p) : p;
+      const streak = whip ? Math.sin(tr.p * Math.PI) : 0;
+      // Blur radii follow the same convention as fxFilter: canvas pixels in the browser, frame units in the exporter.
+      const blur = streak > 0.05 && 'filter' in ctx ? `blur(${(streak * W * o.pixelScale * 0.03).toFixed(1)}px)` : '';
       ctx.save();
-      ctx.translate(dx * p * W, dy * p * H);
+      if (blur) ctx.filter = blur;
+      ctx.translate(dx * q * W, dy * q * H);
       drawFrom();
       ctx.restore();
       ctx.save();
-      ctx.translate(-dx * (1 - p) * W, -dy * (1 - p) * H);
+      if (blur) ctx.filter = blur;
+      ctx.translate(-dx * (1 - q) * W, -dy * (1 - q) * H);
       drawCurrent();
       ctx.restore();
+      break;
+    }
+    case 'blur': {
+      // The old picture blurs away while the new one sharpens into place.
+      const k = easeInOut(tr.p);
+      const can = 'filter' in ctx;
+      const r = W * o.pixelScale * 0.02;
+      ctx.save();
+      if (can && k < 1) ctx.filter = `blur(${((1 - k) * r).toFixed(1)}px)`;
+      drawCurrent();
+      ctx.restore();
+      ctx.save();
+      if (can && k > 0) ctx.filter = `blur(${(k * r).toFixed(1)}px)`;
+      drawFrom(1 - k);
+      ctx.restore();
+      break;
+    }
+    case 'glitch': {
+      // Horizontal bands of the two pictures shoved sideways, settling on the new one.
+      const seed = Math.floor(tr.p * 14);
+      let r = (seed * 2654435761 + 97) >>> 0;
+      const rnd = () => {
+        r = (Math.imul(r, 1664525) + 1013904223) >>> 0;
+        return r / 4294967296;
+      };
+      const strength = Math.sin(tr.p * Math.PI);
+      drawCurrent();
+      const bands = 7;
+      for (let i = 0; i < bands; i++) {
+        const y0 = (i / bands) * H;
+        const h = H / bands;
+        const useFrom = rnd() > tr.p;
+        const shift = (rnd() - 0.5) * W * 0.18 * strength;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, y0, W, h);
+        ctx.clip();
+        ctx.translate(shift, 0);
+        if (useFrom) drawFrom();
+        else drawCurrent();
+        ctx.restore();
+      }
+      // A thin colour fringe while it tears.
+      if (strength > 0.2) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.18 * strength;
+        ctx.fillStyle = '#00E5FF';
+        ctx.fillRect((rnd() - 0.5) * W * 0.04, 0, W, H);
+        ctx.restore();
+      }
       break;
     }
     case 'zoom': {
@@ -249,7 +376,7 @@ function drawOverlay(env: Env, ref: VisualRef): void {
 export function renderFrame(ctx: Ctx2D, doc: ProjectDoc, layout: MainSeg[], t: number, o: RenderOptions): Scene {
   const W = doc.settings.width;
   const H = doc.settings.height;
-  const env: Env = { ctx, W, H, o };
+  const env: Env = { ctx, W, H, o, t };
   const scene = sceneAt(doc, layout, t);
   ctx.save();
   ctx.globalAlpha = 1;
@@ -258,6 +385,7 @@ export function renderFrame(ctx: Ctx2D, doc: ProjectDoc, layout: MainSeg[], t: n
   ctx.fillRect(0, 0, W, H);
 
   ctx.save();
+  if (scene.zoom.dx || scene.zoom.dy) ctx.translate(scene.zoom.dx * W, scene.zoom.dy * H);
   if (scene.zoom.scale !== 1) {
     const fx = scene.zoom.focusX * W;
     const fy = scene.zoom.focusY * H;
@@ -292,14 +420,39 @@ interface StyleSpec {
   size: number;
   stroke?: number;
   shadow?: boolean;
+  /** The card scales up a little as it arrives and the spoken word grows. */
+  pop?: boolean;
+  /** Only the word being spoken is on screen. */
+  single?: boolean;
+  /** Words appear as they are spoken and stay, typed by a cursor. */
+  reveal?: boolean;
+  /** A backdrop behind the lines. */
+  box?: 'dark' | 'glass' | 'band';
+  /** How the word being spoken is marked. */
+  mark?: 'accent' | 'karaoke' | 'highlight' | 'underline' | 'none';
+  /** Soft light around every word, strongest on the spoken one. */
+  glow?: boolean;
+  /** A hard offset shadow in the accent colour. */
+  depth?: boolean;
+  /** The spoken word tilts a little as it pops. */
+  wobble?: boolean;
 }
 
 export const CAPTION_STYLES: Record<CaptionStyle, StyleSpec> = {
   clean: { font: 'Inter', weight: 700, size: 0.05, stroke: 0.045, shadow: true },
-  pop: { font: 'Montserrat', weight: 900, size: 0.072, stroke: 0.1 },
-  highlight: { font: 'Poppins', weight: 700, size: 0.058, shadow: true },
-  boxed: { font: 'Inter', weight: 600, size: 0.045 },
-  karaoke: { font: 'Montserrat', weight: 800, size: 0.062, stroke: 0.09 },
+  pop: { font: 'Montserrat', weight: 900, size: 0.072, stroke: 0.1, pop: true },
+  highlight: { font: 'Poppins', weight: 700, size: 0.058, shadow: true, mark: 'highlight' },
+  boxed: { font: 'Inter', weight: 600, size: 0.045, box: 'dark' },
+  karaoke: { font: 'Montserrat', weight: 800, size: 0.062, stroke: 0.09, pop: true, mark: 'karaoke' },
+  outline: { font: 'Anton', weight: 400, size: 0.084, stroke: 0.13, pop: true },
+  oneword: { font: 'Archivo Black', weight: 400, size: 0.12, stroke: 0.1, single: true, pop: true },
+  glow: { font: 'Poppins', weight: 700, size: 0.06, glow: true },
+  glass: { font: 'Inter', weight: 600, size: 0.047, box: 'glass' },
+  typewriter: { font: 'Space Mono', weight: 700, size: 0.046, box: 'dark', reveal: true, mark: 'none' },
+  band: { font: 'Oswald', weight: 700, size: 0.056, box: 'band', mark: 'underline' },
+  underline: { font: 'Inter', weight: 800, size: 0.056, shadow: true, mark: 'underline' },
+  retro: { font: 'Bungee', weight: 400, size: 0.066, depth: true, pop: true, mark: 'none' },
+  comic: { font: 'Bangers', weight: 400, size: 0.088, stroke: 0.09, pop: true, wobble: true, mark: 'none' },
 };
 
 interface PlacedWord {
@@ -344,16 +497,16 @@ export function drawCaption(
   for (const word of shown) {
     const w = ctx.measureText(word.text).width;
     const line = lines[lines.length - 1];
-    if (line && line.width + space + w <= maxW) {
+    if (line && line.width + space + w <= maxW && !spec.single) {
       line.words.push({ ...word, w });
       line.width += space + w;
     } else lines.push({ words: [{ ...word, w }], width: w });
   }
-  const blockH = lineH * lines.length;
+  const blockH = spec.single ? lineH : lineH * lines.length;
   const blockW = Math.max(...lines.map((l) => l.width));
   const placed: PlacedWord[] = [];
   lines.forEach((line, li) => {
-    const y = -blockH / 2 + lineH * (li + 0.5) + px * 0.35;
+    const y = spec.single ? px * 0.35 : -blockH / 2 + lineH * (li + 0.5) + px * 0.35;
     // Right-to-left scripts run from the right edge of the line.
     let x = rtl ? line.width / 2 : -line.width / 2;
     for (const word of line.words) {
@@ -364,24 +517,51 @@ export function drawCaption(
   });
   let active = -1;
   for (let i = 0; i < placed.length; i++) if (placed[i].start <= t + 1e-4) active = i;
+  // One word at a time: only the spoken word (or the first, before anyone speaks) is drawn, centred.
+  const visible = (i: number): boolean => {
+    if (spec.single) return i === Math.max(0, active);
+    if (spec.reveal) return i <= Math.max(0, active);
+    return true;
+  };
 
   ctx.translate(W / 2, s.y * H);
   // One word too long for the frame: shrink the card rather than run off the edges.
   if (blockW > maxW) ctx.scale(maxW / blockW, maxW / blockW);
-  if (s.style === 'pop' || s.style === 'karaoke') {
+  if (spec.pop && !spec.single) {
     const k = clamp((t - card.start) / 0.09, 0, 1);
     const sc = 0.88 + 0.12 * easeOutCubic(k);
     ctx.scale(sc, sc);
   }
+  const wordStart = (i: number) => (i === 0 ? Math.min(card.start, placed[0].start) : placed[i].start);
 
-  if (s.style === 'boxed') {
-    const padX = px * 0.55;
-    const padY = px * 0.32;
-    ctx.fillStyle = 'rgba(0,0,0,0.72)';
-    roundRect(ctx, -blockW / 2 - padX, -blockH / 2 - padY, blockW + 2 * padX, blockH + 2 * padY, px * 0.32);
+  // Backdrops.
+  if (spec.box === 'dark' || spec.box === 'glass') {
+    const padX = px * (spec.box === 'glass' ? 0.7 : 0.55);
+    const padY = px * (spec.box === 'glass' ? 0.4 : 0.32);
+    const r = px * (spec.box === 'glass' ? 0.6 : 0.32);
+    // The typed box grows with the text so the cursor never sits in empty space.
+    let w = blockW;
+    if (spec.reveal) {
+      const last = placed.filter((_, i) => visible(i)).pop();
+      w = last ? Math.max(px * 2, last.x + last.w + px * 0.7 + blockW / 2) : px * 2;
+      if (rtl) w = blockW;
+    }
+    ctx.fillStyle = spec.box === 'glass' ? 'rgba(16,16,24,0.5)' : 'rgba(0,0,0,0.72)';
+    roundRect(ctx, -blockW / 2 - padX, -blockH / 2 - padY, (spec.reveal && !rtl ? w : blockW) + 2 * padX, blockH + 2 * padY, r);
     ctx.fill();
+    if (spec.box === 'glass') {
+      ctx.lineWidth = Math.max(1, px * 0.03);
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      roundRect(ctx, -blockW / 2 - padX, -blockH / 2 - padY, blockW + 2 * padX, blockH + 2 * padY, r);
+      ctx.stroke();
+    }
   }
-  if (s.style === 'highlight' && active >= 0) {
+  if (spec.box === 'band') {
+    const padY = px * 0.45;
+    ctx.fillStyle = s.accent;
+    ctx.fillRect(-W, -blockH / 2 - padY, 2 * W, blockH + 2 * padY);
+  }
+  if (spec.mark === 'highlight' && active >= 0) {
     const a = placed[active];
     const padX = px * 0.2;
     ctx.fillStyle = s.accent;
@@ -390,47 +570,84 @@ export function drawCaption(
   }
 
   const colorOf = (i: number): string => {
-    if (s.style === 'highlight') return placed[i].strong && i !== active ? s.accent : s.color;
-    if (placed[i].strong) return s.accent;
-    if (s.style === 'karaoke') return i <= active ? s.accent : s.color;
+    if (spec.mark === 'highlight') return placed[i].strong && i !== active ? s.accent : s.color;
+    if (placed[i].strong) return spec.box === 'band' ? s.color : s.accent;
+    if (spec.mark === 'karaoke') return i <= active ? s.accent : s.color;
+    if (spec.mark === 'none' || spec.mark === 'underline') return s.color;
     return i === active ? s.accent : s.color;
   };
-  // The word being spoken grows slightly in the "pop" style.
+  // The word being spoken grows slightly in the popping styles.
   const scaleOf = (i: number): number => {
-    if (s.style !== 'pop' || i !== active) return 1;
+    if (!spec.pop || i !== active) return 1;
+    const k = easeOutBack(clamp((t - wordStart(i)) / 0.12, 0, 1));
+    if (spec.single) return 0.7 + 0.3 * k;
     // Grow by a share of the word gap, not of the word: a long word scaled by a
     // fixed ratio would swallow the spaces on both sides of it.
     const grow = Math.min(0.1, (space * 0.5) / Math.max(1, placed[i].w));
-    return 1 + grow * easeOutBack(clamp((t - placed[i].start) / 0.12, 0, 1));
+    return 1 + grow * k;
   };
   const each = (fn: (p: PlacedWord, i: number) => void) => {
     placed.forEach((p, i) => {
+      if (!visible(i)) return;
       const k = scaleOf(i);
-      if (k === 1) return fn(p, i);
+      const tilt = spec.wobble && i === active ? -0.06 : 0;
+      if (k === 1 && !tilt && !spec.single) return fn(p, i);
       ctx.save();
-      ctx.translate(p.x + p.w / 2, p.y - px * 0.35);
+      const cx = spec.single ? 0 : p.x + p.w / 2;
+      const cy = p.y - px * 0.35;
+      ctx.translate(cx, cy);
       ctx.scale(k, k);
-      ctx.translate(-(p.x + p.w / 2), -(p.y - px * 0.35));
+      if (tilt) ctx.rotate(tilt);
+      ctx.translate(-(p.x + p.w / 2), -cy);
       fn(p, i);
       ctx.restore();
     });
   };
 
-  // All outlines first so one word's outline never covers its neighbour's fill.
+  // Depth first, then all outlines, so one word's outline never covers its neighbour's fill.
+  if (spec.depth) {
+    const d = px * 0.055;
+    ctx.fillStyle = s.accent;
+    for (let step = 4; step >= 1; step--) each((p) => ctx.fillText(p.text, p.x + (d * step) / 4, p.y + (d * step) / 4));
+  }
   if (spec.stroke) {
     ctx.lineJoin = 'round';
     ctx.lineWidth = spec.stroke * px * 2;
     ctx.strokeStyle = s.style === 'clean' ? 'rgba(0,0,0,0.55)' : '#000000';
     each((p) => ctx.strokeText(p.text, p.x, p.y));
   }
+  if (spec.glow) {
+    // A wide halo under every word; the spoken word gets a second, tighter pass below.
+    setShadow(ctx, s.accent, px * 0.7, 0, pixelScale);
+    ctx.fillStyle = s.accent;
+    each((p) => ctx.fillText(p.text, p.x, p.y));
+  }
   if (spec.shadow) setShadow(ctx, 'rgba(0,0,0,0.55)', px * 0.2, px * 0.05, pixelScale);
   each((p, i) => {
     // The highlighted word sits on its own box and needs no shadow.
-    const onBox = spec.shadow && s.style === 'highlight' && i === active;
+    const onBox = spec.shadow && spec.mark === 'highlight' && i === active;
     if (onBox) clearShadow(ctx);
+    if (spec.glow) setShadow(ctx, s.accent, i === active ? px * 0.3 : px * 0.12, 0, pixelScale);
     ctx.fillStyle = colorOf(i);
     ctx.fillText(p.text, p.x, p.y);
     if (onBox) setShadow(ctx, 'rgba(0,0,0,0.55)', px * 0.2, px * 0.05, pixelScale);
   });
+  clearShadow(ctx);
+  // A bar under the spoken word, drawn out from its left edge as it starts.
+  if (spec.mark === 'underline' && active >= 0) {
+    const a = placed[active];
+    const k = easeOutCubic(clamp((t - wordStart(active)) / 0.14, 0, 1));
+    ctx.fillStyle = spec.box === 'band' ? s.color : s.accent;
+    roundRect(ctx, a.x, a.y + px * 0.16, a.w * k, px * 0.1, px * 0.05);
+    ctx.fill();
+  }
+  // The typing cursor, blinking after the last typed word.
+  if (spec.reveal && !rtl) {
+    const last = placed.filter((_, i) => visible(i)).pop();
+    if (last && ((t * 1.6) % 1) < 0.55) {
+      ctx.fillStyle = s.accent;
+      ctx.fillRect(last.x + last.w + px * 0.15, last.y - px * 0.72, px * 0.48, px * 0.9);
+    }
+  }
   ctx.restore();
 }

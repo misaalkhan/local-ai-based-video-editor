@@ -50,3 +50,4 @@ fetch Comfortaa 700 Comfortaa-700.ttf
 fetch Yellowtail 400 Yellowtail-400.ttf
 fetch Space+Grotesk 700 SpaceGrotesk-700.ttf
 fetch Cormorant+Garamond 700 CormorantGaramond-700.ttf
+fetch Space+Mono 700 SpaceMono-700.ttf

@@ -59,9 +59,17 @@ export interface ClipFx {
   warmth?: number;
   /** 0..1, darkening of the edges. */
   vignette?: number;
+  /** 0..1, old-photo brown tint. */
+  sepia?: number;
+  /** 0..1, film grain over the picture. */
+  grain?: number;
+  /** Height of the black bars top and bottom, as a fraction of the frame height (0.12 is the usual cinema look). */
+  letterbox?: number;
+  /** Mirror the picture left to right. */
+  flip?: boolean;
 }
 
-export type TransitionType = 'fade' | 'dip' | 'slide-left' | 'slide-right' | 'slide-up' | 'zoom';
+export type TransitionType = 'fade' | 'dip' | 'flash' | 'slide-left' | 'slide-right' | 'slide-up' | 'whip' | 'zoom' | 'blur' | 'glitch';
 
 /** How a main clip arrives from the one before it. */
 export interface Transition {
@@ -154,7 +162,7 @@ export type GraphicTemplate =
   | 'emoji'
   | 'progress';
 
-export type AnimKind = 'none' | 'fade' | 'pop' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right';
+export type AnimKind = 'none' | 'fade' | 'pop' | 'bounce' | 'zoom' | 'typewriter' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right';
 
 /**
  * Anything drawn on the Graphic track: plain text, pop-up cards, callouts.
@@ -183,9 +191,25 @@ export interface ZoomItem extends ItemMeta {
   focusX: number;
   focusY: number;
   ease: 'cut' | 'smooth';
+  /** 0..1: the picture shakes for the length of the item (a hit, a beat, a shock). */
+  shake?: number;
 }
 
-export type CaptionStyle = 'clean' | 'pop' | 'highlight' | 'boxed' | 'karaoke';
+export type CaptionStyle =
+  | 'clean'
+  | 'pop'
+  | 'highlight'
+  | 'boxed'
+  | 'karaoke'
+  | 'outline'
+  | 'oneword'
+  | 'glow'
+  | 'glass'
+  | 'typewriter'
+  | 'band'
+  | 'underline'
+  | 'retro'
+  | 'comic';
 
 export interface CaptionSettings {
   enabled: boolean;

@@ -681,7 +681,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'add_zoom',
-    description: 'Add a punch-in on the main track for emphasis. A quick cut-in of 1.15-1.3x on a key line is the classic; ease "smooth" with to_scale gives a slow push-in. If no focus is given it closes in on the speaker\'s face when one is known. Vary the amount between punch-ins so they do not feel mechanical.',
+    description: 'Add a punch-in on the main track for emphasis. A quick cut-in of 1.15-1.3x on a key line is the classic; ease "smooth" with to_scale gives a slow push-in; shake makes the picture shake instead (a hit, a beat drop, a reveal). If no focus is given it closes in on the speaker\'s face when one is known. Vary the amount between punch-ins so they do not feel mechanical.',
     schema: obj({
       ...WHEN,
       scale: N('Zoom amount, e.g. 1.2. Default 1.2.'),
@@ -689,9 +689,10 @@ export const TOOLS: ToolDef[] = [
       focus_x: N('0-1. Default: the face, or the middle.'),
       focus_y: N('0-1.'),
       ease: S('"cut" snaps in (default), "smooth" eases in and out.', ['cut', 'smooth']),
+      shake: N('0-1: shake the picture for the length of the item instead of zooming (a hit, a drop, a shock); 0.3-0.5 s is enough. Use scale 1 with it.'),
       name: S('Label on the timeline.'),
     }),
-    label: () => 'Adding a punch-in',
+    label: (a) => (a.shake ? 'Adding a shake' : 'Adding a punch-in'),
     run: (ctx, a) => {
       const v = view(ctx.p);
       const { start, duration } = span(ctx.p, a, v, 2.5);
@@ -714,7 +715,8 @@ export const TOOLS: ToolDef[] = [
         focusX: fx ?? 0.5,
         focusY: fy ?? 0.4,
         ease: a.ease === 'smooth' ? 'smooth' : 'cut',
-        name: str(a.name) || 'Punch-in',
+        shake: optNum(a.shake, 'shake'),
+        name: str(a.name) || (a.shake ? 'Shake' : 'Punch-in'),
         createdBy: ctx.messageId,
       });
       save(ctx, r.doc, 'add_zoom', `Punch-in at ${sec(start)}s`);
@@ -723,8 +725,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'add_transition',
-    description: 'Make a main segment arrive from the previous one with a transition instead of a plain cut: fade (cross fade), dip (to black), slide-left, slide-right, slide-up, zoom, or none to remove. Plain cuts are best inside a talking sequence; use transitions sparingly, for a change of scene or topic.',
-    schema: obj({ clip_id: S('The segment that arrives (the second of the pair).'), type: S('Transition.', ['fade', 'dip', 'slide-left', 'slide-right', 'slide-up', 'zoom', 'none']), duration_s: N('Length. Default 0.4.') }, ['clip_id', 'type']),
+    description: 'Make a main segment arrive from the previous one with a transition instead of a plain cut: fade (cross fade), dip (to black), flash (white flash, for energy and beats), slide-left, slide-right, slide-up, whip (fast blurred whip pan), zoom, blur (one picture blurs into the next), glitch (digital tearing, for tech or chaos), or none to remove. Plain cuts are best inside a talking sequence; use transitions sparingly, for a change of scene or topic.',
+    schema: obj({ clip_id: S('The segment that arrives (the second of the pair).'), type: S('Transition.', ['fade', 'dip', 'flash', 'slide-left', 'slide-right', 'slide-up', 'whip', 'zoom', 'blur', 'glitch', 'none']), duration_s: N('Length. Default 0.4.') }, ['clip_id', 'type']),
     label: () => 'Adding a transition',
     run: (ctx, a) => {
       const v = view(ctx.p);
@@ -739,8 +741,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'set_clip_look',
-    description: `Adjust the colour of a main or b-roll clip, or every main clip when clip_id is "all". Pass a look (${Object.keys(LOOKS).join(', ')}) for a ready-made grade, or values: multipliers where 1 leaves it unchanged (brightness 1.1, contrast 1.05, saturation 1.2), black_and_white 0-1, warmth -1 (cool) to 1 (warm), vignette 0-1. Pass reset to clear.`,
-    schema: obj({ clip_id: S('Clip id, or "all" for every main clip.'), look: S('A ready-made look.', Object.keys(LOOKS)), brightness: N('1 = unchanged.'), contrast: N('1 = unchanged.'), saturation: N('1 = unchanged.'), black_and_white: N('0-1.'), blur: N('0-1, 1 = heavy blur.'), warmth: N('-1 cool to 1 warm.'), vignette: N('0-1.'), reset: B('Remove all adjustments.') }, ['clip_id']),
+    description: `Adjust the colour of a main or b-roll clip, or every main clip when clip_id is "all". Pass a look (${Object.keys(LOOKS).join(', ')}) for a ready-made grade, or values: multipliers where 1 leaves it unchanged (brightness 1.1, contrast 1.05, saturation 1.2), black_and_white 0-1, warmth -1 (cool) to 1 (warm), vignette 0-1, sepia 0-1, grain 0-1 (film grain), cinema_bars 0-0.25 (black bars top and bottom), mirror. Pass reset to clear.`,
+    schema: obj({ clip_id: S('Clip id, or "all" for every main clip.'), look: S('A ready-made look.', Object.keys(LOOKS)), brightness: N('1 = unchanged.'), contrast: N('1 = unchanged.'), saturation: N('1 = unchanged.'), black_and_white: N('0-1.'), blur: N('0-1, 1 = heavy blur.'), warmth: N('-1 cool to 1 warm.'), vignette: N('0-1.'), sepia: N('0-1.'), grain: N('0-1.'), cinema_bars: N('0-0.25 of the height.'), mirror: B('Flip the picture left to right.'), reset: B('Remove all adjustments.') }, ['clip_id']),
     label: () => 'Adjusting colour',
     run: (ctx, a) => {
       const v = view(ctx.p);
@@ -763,6 +765,10 @@ export const TOOLS: ToolDef[] = [
               ...(a.blur !== undefined ? { blur: clamp(num(a.blur, 'blur'), 0, 1) * 0.03 } : {}),
               ...(a.warmth !== undefined ? { warmth: clamp(num(a.warmth, 'warmth'), -1, 1) } : {}),
               ...(a.vignette !== undefined ? { vignette: clamp(num(a.vignette, 'vignette'), 0, 1) } : {}),
+              ...(a.sepia !== undefined ? { sepia: clamp(num(a.sepia, 'sepia'), 0, 1) } : {}),
+              ...(a.grain !== undefined ? { grain: clamp(num(a.grain, 'grain'), 0, 1) } : {}),
+              ...(a.cinema_bars !== undefined ? { letterbox: clamp(num(a.cinema_bars, 'cinema_bars'), 0, 0.25) } : {}),
+              ...(a.mirror !== undefined ? { flip: !!a.mirror || undefined } : {}),
             };
         d = ops.updateClip(d, it.kind, it.id, { fx });
         n++;
@@ -776,11 +782,11 @@ export const TOOLS: ToolDef[] = [
   // ------------------------------------------------------------------ graphics
   {
     name: 'add_text',
-    description: `Put text on screen. Styles: hook (bold on a white box, for the opening line), title (huge outlined), subtitle, label (small pill), serif, card (plain, for title cards). Wrap a word in *asterisks* to give it the accent colour. Keep it short: 3-6 words reads in a second or two. The font can match the mood (comic, handwritten, elegant, hype): list_library kind=fonts describes each. ${POSITION}`,
+    description: `Put text on screen. Styles: hook (bold on a white box, for the opening line), title (huge outlined), subtitle, label (small pill), serif, card (plain, for title cards), meme (block capitals with an outline, top of the frame), comic (BOOM-style lettering, pops in), sticker (tilted yellow sticker, bounces in), neon (glowing script), handwritten (tilted marker handwriting), marker (highlighter stroke behind the words), quote (serif in quotation marks), glitch (cyan and magenta tearing), gradient (two-colour fill, flies in), typewriter (typed in letter by letter on a dark box). Wrap a word in *asterisks* to give it the accent colour. Keep it short: 3-6 words reads in a second or two. The font can match the mood (comic, handwritten, elegant, hype): list_library kind=fonts describes each. ${POSITION}`,
     schema: obj({
       text: S('What it says. Use \\n for a line break.'),
       ...WHEN,
-      style: S('Preset.', ['hook', 'title', 'subtitle', 'label', 'serif', 'card']),
+      style: S('Preset.', ['hook', 'title', 'subtitle', 'label', 'serif', 'card', 'meme', 'comic', 'sticker', 'neon', 'handwritten', 'marker', 'quote', 'glitch', 'gradient', 'typewriter']),
       position: S('Named position or "auto".'),
       x: N('0-1.'),
       y: N('0-1.'),
@@ -834,7 +840,7 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       x: N('0-1.'),
       y: N('0-1.'),
       scale: N('Size multiplier, 1 = normal.'),
-      anim_in: S('Entrance.', ['none', 'fade', 'pop', 'slide-up', 'slide-down', 'slide-left', 'slide-right']),
+      anim_in: S('Entrance.', ['none', 'fade', 'pop', 'bounce', 'zoom', 'slide-up', 'slide-down', 'slide-left', 'slide-right']),
       name: S('Label on the timeline, e.g. "Credibility comment popup".'),
     }, ['template', 'props']),
     label: (a) => `Adding a ${str(a.template).replace('-', ' ')}`,
@@ -941,10 +947,10 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
   },
   {
     name: 'set_captions',
-    description: 'Turn word-timed captions on or off and style them. Presets: pop (2-3 big bold words, the spoken word highlighted), highlight (a box follows the spoken word), karaoke (words fill in), clean (a plain line), boxed (classic subtitles). Captions follow every cut automatically. Use emphasize to keep key words (numbers, names, the payoff) in the accent colour, one or two per sentence at most. Use fix to correct a misheard word.',
+    description: 'Turn word-timed captions on or off and style them. Presets: pop (2-3 big bold words, the spoken word highlighted), highlight (a box follows the spoken word), karaoke (words fill in), clean (a plain line), boxed (classic subtitles), outline (tall block capitals with a thick outline), oneword (one huge word at a time, for fast energetic talk), glow (neon glow in the accent colour), glass (frosted pill, elegant), typewriter (typed in with a cursor, dry or techy), band (full-width colour band like a headline), underline (a bar slides under the spoken word), retro (chunky letters with a hard shadow), comic (comic lettering that wobbles). Captions follow every cut automatically. Use emphasize to keep key words (numbers, names, the payoff) in the accent colour, one or two per sentence at most. Use fix to correct a misheard word.',
     schema: obj({
       enabled: B('Show captions.'),
-      preset: S('Style.', ['pop', 'highlight', 'karaoke', 'clean', 'boxed']),
+      preset: S('Style.', ['pop', 'highlight', 'karaoke', 'clean', 'boxed', 'outline', 'oneword', 'glow', 'glass', 'typewriter', 'band', 'underline', 'retro', 'comic']),
       words_per_line: N('Words shown at a time (1-9).'),
       position_y: N('Vertical centre, 0 = top, 1 = bottom. Default 0.7. In vertical video do not go below the 0.74 line (that is, keep position_y <= 0.74) or apps cover it.'),
       size: N('Size multiplier, 1 = default.'),

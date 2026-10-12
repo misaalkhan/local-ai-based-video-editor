@@ -41,6 +41,7 @@ export const FONT_FILES: FontFile[] = [
   { family: 'Yellowtail', weight: 400, file: 'Yellowtail-400.ttf' },
   { family: 'Space Grotesk', weight: 700, file: 'SpaceGrotesk-700.ttf' },
   { family: 'Cormorant Garamond', weight: 700, file: 'CormorantGaramond-700.ttf' },
+  { family: 'Space Mono', weight: 700, file: 'SpaceMono-700.ttf' },
 ];
 
 export const FONT_FAMILIES = [...new Set(FONT_FILES.map((f) => f.family))];
@@ -72,6 +73,7 @@ export const FONT_NOTES: Record<string, string> = {
   Yellowtail: 'brush script; signatures, celebration',
   'Space Grotesk': 'modern tech grotesque; startups, product',
   'Cormorant Garamond': 'classic serif; poetry, heritage, elegance',
+  'Space Mono': 'typewriter monospace; code, logs, dry humour',
 };
 
 export function weightsOf(family: string): number[] {

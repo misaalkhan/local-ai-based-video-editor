@@ -70,6 +70,12 @@ Comedy and reactions
 - A punch-in on a reaction face (1.2x, cut) and a quick zoom-out again is a joke in itself; use it for the reaction, not the setup.
 - Captions in comedy: shorter cards (two or three words), the key word emphasised, and keep the pause before the punchline free of text so the words do not give it away.
 
+Style
+- Pick the caption style for the mood, then keep it for the whole piece: pop or outline for energy, oneword for fast excited talk, karaoke or underline for tutorials, glass or clean for calm and elegant, glow for nightlife, typewriter for dry or techy humour, band for news-style headlines, retro or comic for playful footage, boxed when readability is all that matters.
+- Text styles follow the same mood: meme and comic for jokes, sticker for a tag or a price, neon and gradient for hype, handwritten and marker for a personal note, quote for a line worth quoting, glitch for tech or chaos, typewriter for a dry aside. One or two text styles per piece; mixing five looks like a template.
+- Looks: warm, golden or film for memories and travel; teal, punchy or vivid for action and products; pastel or dreamy for soft lifestyle; noir, bw or moody for drama; cinema (widescreen bars) when it should feel like a film. Grain and cinema bars are a choice for the whole piece, not one clip. Apply one look to all main clips so the cut holds together.
+- Transitions: flash on a beat drop or an energy shift, whip for a change of place, glitch for a tech reveal or chaos, blur or fade for a soft change of time, dip for a chapter break. A shake (add_zoom with shake) sells a hit, a drop or a shock; a quarter to half a second.
+
 Restraint
 - No transitions between cuts of the same person talking; plain cuts are right there.
 - Do not stack effects for their own sake. Clean and deliberate beats busy.

@@ -34,6 +34,9 @@ export interface Ctx2D {
   setLineDash(segments: number[]): void;
   drawImage(image: any, ...rest: number[]): void;
   createRadialGradient(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number): { addColorStop(offset: number, color: string): void };
+  createLinearGradient(x0: number, y0: number, x1: number, y1: number): { addColorStop(offset: number, color: string): void };
+  createPattern(image: any, repetition: string): unknown;
+  transform(a: number, b: number, c: number, d: number, e: number, f: number): void;
   globalCompositeOperation: any;
   font: string;
   fillStyle: any;
@@ -288,6 +291,22 @@ function animState(kind: AnimKind, p: number, leaving: boolean, dist: number): A
       s.scale = leaving ? 0.8 + 0.2 * e : 0.6 + 0.4 * easeOutBack(p);
       s.alpha = Math.min(1, p * 2.5);
       break;
+    case 'bounce': {
+      // Drops in from above and overshoots, like a sticker slapped on.
+      const k = leaving ? e : easeOutBack(p);
+      s.scale = leaving ? 0.7 + 0.3 * e : 0.3 + 0.7 * k;
+      s.dy = leaving ? 0 : -(1 - k) * dist * 0.6;
+      s.alpha = Math.min(1, p * 3);
+      break;
+    }
+    case 'zoom':
+      // Flies in from very large, as if thrown at the camera.
+      s.scale = leaving ? 1 + 0.8 * (1 - e) : 1 + 1.2 * (1 - e);
+      s.alpha = Math.min(1, p * 2.5);
+      break;
+    case 'typewriter':
+      // The text template types the letters itself; nothing moves.
+      break;
     case 'slide-up':
       s.dy = (1 - e) * dist;
       s.alpha = Math.min(1, p * 2);
@@ -321,6 +340,7 @@ interface TCtx {
   /** Seconds since the item started, and its total length. */
   local: number;
   duration: number;
+  animIn: AnimKind;
   env: GraphicEnv;
   /** Convert a point in frame coordinates (0..1) to this item's local space. */
   toLocal: (fx: number, fy: number) => { x: number; y: number };
@@ -355,10 +375,30 @@ function card(t: TCtx, x: number, y: number, w: number, h: number, r: number, bg
   clearShadow(ctx);
 }
 
+/** Seconds per letter when text types itself in. */
+const TYPE_RATE = 0.045;
+
 function drawTextTemplate(t: TCtx): void {
-  const { ctx, props, W, H, env } = t;
-  const text = str(props.text);
+  const { ctx, props, W, H, env, local } = t;
+  let text = str(props.text);
   if (!text.trim()) return;
+  if (flag(props.quote)) text = `\u201C${text}\u201D`;
+  // Typewriter entrance: the letters arrive one by one, with a cursor while they do.
+  let typing = false;
+  if (t.animIn === 'typewriter') {
+    const shown = Math.floor(local / TYPE_RATE);
+    const chars = Array.from(text);
+    if (shown < chars.length) {
+      text = chars.slice(0, shown).join('');
+      typing = true;
+    }
+    if (typing || local < chars.length * TYPE_RATE + 0.6) {
+      // A blinking block cursor, on for the first half of each 0.7 s.
+      const on = ((local / 0.7) % 1) < 0.5 || typing;
+      if (on) text += '\u258C';
+    }
+    if (!text) return;
+  }
   const px = num(props.size, 0.07) * refSize(W, H);
   ctx.font = fontString(str(props.font, 'Montserrat'), num(props.weight, 800), px);
   const layout = layoutText(ctx, text, num(props.maxWidth, 0.84) * W, flag(props.uppercase));
@@ -370,11 +410,64 @@ function drawTextTemplate(t: TCtx): void {
   const background = str(props.background);
   if (background) {
     const pad = num(props.padding, 0.38) * px;
+    const r = num(props.radius, 0.28) * px;
     setShadow(ctx, 'rgba(0,0,0,0.25)', px * 0.3, px * 0.08, env.pixelScale);
     ctx.fillStyle = background;
-    roundRect(ctx, x - pad, y - pad * 0.62, layout.width + 2 * pad, blockH + pad * 1.24, num(props.radius, 0.28) * px);
+    roundRect(ctx, x - pad, y - pad * 0.62, layout.width + 2 * pad, blockH + pad * 1.24, r);
     ctx.fill();
     clearShadow(ctx);
+    const border = str(props.border);
+    if (border) {
+      ctx.lineWidth = num(props.borderWidth, 0.08) * px;
+      ctx.strokeStyle = border;
+      roundRect(ctx, x - pad, y - pad * 0.62, layout.width + 2 * pad, blockH + pad * 1.24, r);
+      ctx.stroke();
+    }
+  }
+  // A highlighter stroke behind each line, a little askew like a real marker.
+  const highlighter = str(props.highlighter);
+  if (highlighter) {
+    const lineH = px * lineHeight;
+    ctx.save();
+    ctx.fillStyle = highlighter;
+    ctx.globalAlpha *= 0.92;
+    layout.lines.forEach((line, i) => {
+      let lx = x;
+      if (align === 'center') lx = x + (layout.width - line.width) / 2;
+      else if (align === 'right') lx = x + layout.width - line.width;
+      const top = y + lineH * i + lineH * 0.12;
+      ctx.save();
+      ctx.translate(lx + line.width / 2, top + lineH * 0.42);
+      ctx.rotate(-0.012);
+      ctx.transform(1, 0, -0.08, 1, 0, 0);
+      roundRect(ctx, -line.width / 2 - px * 0.18, -lineH * 0.42, line.width + px * 0.36, lineH * 0.86, px * 0.08);
+      ctx.fill();
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+  const paint = (color: unknown, dx = 0, dy = 0) => {
+    ctx.save();
+    ctx.translate(dx, dy);
+    paintText(ctx, layout, x, y, px, { color: color as string, accent: str(props.accent, defaultColor('text', 'accent', props)), align, lineHeight });
+    ctx.restore();
+  };
+  // A hard offset shadow gives the letters depth (the retro poster look).
+  const offsetShadow = str(props.offsetShadow);
+  if (offsetShadow) {
+    const depth = num(props.offsetDepth, 0.06) * px;
+    const steps = Math.max(1, Math.round(depth / Math.max(1, px * 0.012)));
+    for (let i = steps; i >= 1; i--) paint(offsetShadow, (depth * i) / steps, (depth * i) / steps);
+  }
+  // Glitch: a cyan and a magenta copy pushed apart, flickering with time.
+  if (flag(props.glitch)) {
+    const wob = 1 + 0.6 * Math.sin(local * 41) * Math.sin(local * 7);
+    const off = px * 0.06 * wob;
+    ctx.save();
+    ctx.globalAlpha *= 0.85;
+    paint('#00E5FF', -off, -off * 0.3);
+    paint('#FF2BD6', off, off * 0.3);
+    ctx.restore();
   }
   const stroke = str(props.stroke);
   const strokeWidth = num(props.strokeWidth, 0);
@@ -384,14 +477,25 @@ function drawTextTemplate(t: TCtx): void {
     ctx.strokeStyle = stroke;
     paintText(ctx, layout, x, y, px, { color: stroke, align, lineHeight, stroke: true });
   }
+  const glow = str(props.glow);
+  if (glow) {
+    // Two passes of glow: a wide soft halo and a tighter bright core.
+    setShadow(ctx, glow, px * 0.9, 0, env.pixelScale);
+    paint(glow);
+    setShadow(ctx, glow, px * 0.35, 0, env.pixelScale);
+    paint(str(props.color, '#FFFFFF'));
+    clearShadow(ctx);
+  }
   if (flag(props.shadow)) setShadow(ctx, 'rgba(0,0,0,0.6)', px * 0.16, px * 0.04, env.pixelScale);
-  paintText(ctx, layout, x, y, px, {
-    color: str(props.color, '#FFFFFF'),
-    // Yellow reads on footage and on dark boxes, not on a light one.
-    accent: str(props.accent, defaultColor('text', 'accent', props)),
-    align,
-    lineHeight,
-  });
+  let fill: unknown = str(props.color, '#FFFFFF');
+  const gradient = str(props.gradient);
+  if (gradient) {
+    const g = ctx.createLinearGradient(0, y, 0, y + blockH);
+    g.addColorStop(0, str(props.color, '#FFFFFF'));
+    g.addColorStop(1, gradient);
+    fill = g;
+  }
+  paint(fill);
   clearShadow(ctx);
 }
 
@@ -829,6 +933,7 @@ export function drawGraphic(ctx: Ctx2D, g: GraphicItem, t: number, env: GraphicE
     H,
     local,
     duration: g.duration,
+    animIn: g.animIn,
     env,
     toLocal: (fx, fy) => ({ x: (fx * W - ox) / scale, y: (fy * H - oy) / scale }),
   });
@@ -854,6 +959,8 @@ export interface GraphicPreset {
   props: Record<string, unknown>;
   x: number;
   y: number;
+  /** Degrees; a tilt gives stickers and handwriting their casual look. */
+  rotation?: number;
   animIn: AnimKind;
   animOut: AnimKind;
   duration: number;
@@ -883,6 +990,46 @@ export const GRAPHIC_PRESETS: Record<string, GraphicPreset> = {
   serif: {
     template: 'text', label: 'Elegant', x: 0.5, y: 0.35, animIn: 'fade', animOut: 'fade', duration: 3,
     props: { text: 'Something elegant', font: 'Playfair Display', weight: 900, size: 0.085, color: '#FFFFFF', shadow: true, maxWidth: 0.84 },
+  },
+  meme: {
+    template: 'text', label: 'Meme', x: 0.5, y: 0.1, animIn: 'none', animOut: 'none', duration: 3,
+    props: { text: 'WHEN THE REEL FINALLY WORKS', font: 'Anton', weight: 400, size: 0.08, color: '#FFFFFF', stroke: '#000000', strokeWidth: 0.09, uppercase: true, maxWidth: 0.9, lineHeight: 1.08 },
+  },
+  neon: {
+    template: 'text', label: 'Neon', x: 0.5, y: 0.35, animIn: 'fade', animOut: 'fade', duration: 3,
+    props: { text: 'open late', font: 'Pacifico', weight: 400, size: 0.095, color: '#FFFFFF', glow: '#FF3CAC', maxWidth: 0.84 },
+  },
+  handwritten: {
+    template: 'text', label: 'Handwritten', x: 0.5, y: 0.3, rotation: -4, animIn: 'fade', animOut: 'fade', duration: 3,
+    props: { text: 'this one is my favourite', font: 'Caveat', weight: 700, size: 0.1, color: '#FFFFFF', shadow: true, maxWidth: 0.84 },
+  },
+  sticker: {
+    template: 'text', label: 'Sticker', x: 0.5, y: 0.25, rotation: -6, animIn: 'bounce', animOut: 'pop', duration: 2.5,
+    props: { text: 'NEW', font: 'Fredoka', weight: 700, size: 0.07, color: '#111111', background: '#FFE600', border: '#111111', borderWidth: 0.1, padding: 0.5, radius: 0.22, uppercase: true, maxWidth: 0.8 },
+  },
+  marker: {
+    template: 'text', label: 'Marker', x: 0.5, y: 0.3, animIn: 'fade', animOut: 'fade', duration: 3,
+    props: { text: 'the part nobody tells you', font: 'Permanent Marker', weight: 400, size: 0.07, color: '#111111', highlighter: '#FFE600', maxWidth: 0.84, lineHeight: 1.3 },
+  },
+  quote: {
+    template: 'text', label: 'Quote', x: 0.5, y: 0.4, animIn: 'fade', animOut: 'fade', duration: 4,
+    props: { text: 'Pulling someone down will never take you to great heights.', font: 'Cormorant Garamond', weight: 700, size: 0.07, color: '#FFFFFF', shadow: true, quote: true, maxWidth: 0.78, lineHeight: 1.22 },
+  },
+  comic: {
+    template: 'text', label: 'Comic', x: 0.5, y: 0.3, rotation: -3, animIn: 'pop', animOut: 'pop', duration: 2,
+    props: { text: 'BOOM!', font: 'Bangers', weight: 400, size: 0.13, color: '#FFE600', stroke: '#000000', strokeWidth: 0.07, offsetShadow: '#000000', offsetDepth: 0.07, uppercase: true, maxWidth: 0.88 },
+  },
+  glitch: {
+    template: 'text', label: 'Glitch', x: 0.5, y: 0.4, animIn: 'none', animOut: 'none', duration: 2.5,
+    props: { text: 'SYSTEM ERROR', font: 'Archivo Black', weight: 400, size: 0.09, color: '#FFFFFF', glitch: true, uppercase: true, maxWidth: 0.88 },
+  },
+  gradient: {
+    template: 'text', label: 'Gradient', x: 0.5, y: 0.35, animIn: 'zoom', animOut: 'fade', duration: 3,
+    props: { text: 'LEVEL UP', font: 'Bungee', weight: 400, size: 0.1, color: '#FFD93D', gradient: '#FF4E50', shadow: true, uppercase: true, maxWidth: 0.88 },
+  },
+  typewriter: {
+    template: 'text', label: 'Typewriter', x: 0.5, y: 0.3, animIn: 'typewriter', animOut: 'fade', duration: 4,
+    props: { text: 'Day 1 of learning to edit.', font: 'Space Mono', weight: 700, size: 0.052, color: '#FFFFFF', background: '#111111E0', padding: 0.5, radius: 0.12, maxWidth: 0.84, align: 'left' },
   },
   popup: {
     template: 'popup', label: 'Pop-up card', x: 0.5, y: 0.24, animIn: 'pop', animOut: 'fade', duration: 3,

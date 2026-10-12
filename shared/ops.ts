@@ -75,6 +75,15 @@ export const CAPTION_PRESETS: Record<CaptionStyle, Omit<CaptionSettings, 'enable
   highlight: { style: 'highlight', maxWords: 4, uppercase: false, punctuation: false, color: '#FFFFFF', accent: '#7C5CFF' },
   boxed: { style: 'boxed', maxWords: 6, uppercase: false, punctuation: true, color: '#FFFFFF', accent: '#FFE14D' },
   karaoke: { style: 'karaoke', maxWords: 4, uppercase: true, punctuation: false, color: '#FFFFFF', accent: '#3DDC84' },
+  outline: { style: 'outline', maxWords: 3, uppercase: true, punctuation: false, color: '#FFFFFF', accent: '#FFE14D' },
+  oneword: { style: 'oneword', maxWords: 4, uppercase: true, punctuation: false, color: '#FFFFFF', accent: '#FFE14D' },
+  glow: { style: 'glow', maxWords: 4, uppercase: false, punctuation: false, color: '#FFFFFF', accent: '#FF3CAC' },
+  glass: { style: 'glass', maxWords: 6, uppercase: false, punctuation: true, color: '#FFFFFF', accent: '#9DE1FF' },
+  typewriter: { style: 'typewriter', maxWords: 7, uppercase: false, punctuation: true, color: '#E8FFE8', accent: '#3DDC84' },
+  band: { style: 'band', maxWords: 5, uppercase: true, punctuation: false, color: '#FFFFFF', accent: '#E63946' },
+  underline: { style: 'underline', maxWords: 5, uppercase: false, punctuation: true, color: '#FFFFFF', accent: '#FFB703' },
+  retro: { style: 'retro', maxWords: 3, uppercase: true, punctuation: false, color: '#FFF4D6', accent: '#FF6B35' },
+  comic: { style: 'comic', maxWords: 3, uppercase: true, punctuation: false, color: '#FFE600', accent: '#FFFFFF' },
 };
 
 export const DEFAULT_CAPTIONS: CaptionSettings = {
@@ -687,7 +696,7 @@ export function addGraphic(doc: ProjectDoc, opts: GraphicInput): { doc: ProjectD
     x: clamp(opts.x ?? preset.x, -0.5, 1.5),
     y: clamp(opts.y ?? defaultY(d, preset), -0.5, 1.5),
     scale: opts.scale ?? 1,
-    rotation: opts.rotation ?? 0,
+    rotation: opts.rotation ?? preset.rotation ?? 0,
     opacity: opts.opacity ?? 1,
     animIn: opts.animIn ?? preset.animIn,
     animOut: opts.animOut ?? preset.animOut,
@@ -724,6 +733,7 @@ export function addZoom(
     focusX?: number;
     focusY?: number;
     ease?: 'cut' | 'smooth';
+    shake?: number;
   } & ItemMeta,
 ): { doc: ProjectDoc; item: ZoomItem } {
   const d = cloneDoc(doc);
@@ -738,6 +748,7 @@ export function addZoom(
     ease: opts.ease ?? 'cut',
   };
   if (opts.toScale !== undefined) item.toScale = clamp(opts.toScale, 1, 4);
+  if (opts.shake) item.shake = clamp(opts.shake, 0, 1);
   if (opts.name) item.name = opts.name;
   if (opts.createdBy) item.createdBy = opts.createdBy;
   d.zooms.push(item);

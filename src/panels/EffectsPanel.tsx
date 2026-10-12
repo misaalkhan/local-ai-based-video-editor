@@ -51,6 +51,13 @@ export function EffectsPanel() {
             >
               Slow push-in
             </Button>
+            <Button
+              size="sm"
+              icon="alert"
+              onClick={() => edit((d) => addZoom(d, { start: player.time, duration: 0.5, scale: 1, shake: 0.7, ease: 'cut', name: 'Shake' }).doc, 'Add shake')}
+            >
+              Shake
+            </Button>
           </div>
         </Section>
 
@@ -123,6 +130,16 @@ export function EffectsPanel() {
               <Field label="Vignette">
                 <Slider value={fx.vignette ?? 0} min={0} max={1} step={0.01} onChange={(v) => setFx({ vignette: v })} onCommit={() => commit('Vignette')} format={pct} />
               </Field>
+              <Field label="Sepia">
+                <Slider value={fx.sepia ?? 0} min={0} max={1} step={0.01} onChange={(v) => setFx({ sepia: v })} onCommit={() => commit('Sepia')} format={pct} />
+              </Field>
+              <Field label="Film grain">
+                <Slider value={fx.grain ?? 0} min={0} max={1} step={0.01} onChange={(v) => setFx({ grain: v })} onCommit={() => commit('Film grain')} format={pct} />
+              </Field>
+              <Field label="Cinema bars" hint="black bars top and bottom">
+                <Slider value={fx.letterbox ?? 0} min={0} max={0.25} step={0.005} onChange={(v) => setFx({ letterbox: v })} onCommit={() => commit('Cinema bars')} format={pct} />
+              </Field>
+              <Toggle checked={!!fx.flip} onChange={(v) => edit((d) => updateClip(d, kind!, clip.id, { fx: { ...fx, flip: v || undefined } }, md), v ? 'Mirror' : 'Unmirror')} label="Mirror left to right" />
             </Section>
           </>
         )}

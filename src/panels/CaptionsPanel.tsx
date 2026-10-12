@@ -57,11 +57,21 @@ const STYLES: { id: CaptionStyle; name: string; note: string }[] = [
   { id: 'karaoke', name: 'Karaoke', note: 'Words fill in as they are spoken' },
   { id: 'clean', name: 'Clean', note: 'A plain, readable line' },
   { id: 'boxed', name: 'Boxed', note: 'Classic subtitles on a dark box' },
+  { id: 'outline', name: 'Outline', note: 'Tall block capitals with a thick outline' },
+  { id: 'oneword', name: 'One word', note: 'One huge word at a time' },
+  { id: 'glow', name: 'Neon', note: 'Soft glow in the accent colour' },
+  { id: 'glass', name: 'Glass', note: 'A frosted pill behind the line' },
+  { id: 'typewriter', name: 'Typewriter', note: 'Words typed in with a cursor' },
+  { id: 'band', name: 'Band', note: 'A full-width colour band, like a headline' },
+  { id: 'underline', name: 'Underline', note: 'A bar slides under the spoken word' },
+  { id: 'retro', name: 'Retro', note: 'Chunky letters with a hard shadow' },
+  { id: 'comic', name: 'Comic', note: 'Comic lettering that wobbles' },
 ];
 
 function Sample({ id, active }: { id: CaptionStyle; active: boolean }) {
   const spec = CAPTION_STYLES[id];
-  const words = id === 'pop' || id === 'karaoke' ? ['MAKE', 'IT', 'POP'] : ['Make', 'it', 'pop'];
+  const caps = ['pop', 'karaoke', 'outline', 'oneword', 'band', 'retro', 'comic'].includes(id);
+  const words = id === 'oneword' ? ['POP'] : caps ? ['MAKE', 'IT', 'POP'] : ['Make', 'it', 'pop'];
   return (
     <span className={`cap-sample cap-${id} ${active ? 'on' : ''}`} style={{ fontFamily: `"${spec.font}", sans-serif`, fontWeight: spec.weight }}>
       {words.map((w, i) => (

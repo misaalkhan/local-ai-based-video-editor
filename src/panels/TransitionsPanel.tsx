@@ -12,6 +12,10 @@ const TYPES: { id: TransitionType | 'none'; name: string }[] = [
   { id: 'slide-right', name: 'Slide right' },
   { id: 'slide-up', name: 'Slide up' },
   { id: 'zoom', name: 'Zoom through' },
+  { id: 'flash', name: 'Flash' },
+  { id: 'whip', name: 'Whip pan' },
+  { id: 'blur', name: 'Blur' },
+  { id: 'glitch', name: 'Glitch' },
 ];
 
 export function TransitionsPanel() {

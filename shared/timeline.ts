@@ -154,6 +154,9 @@ export interface ZoomState {
   scale: number;
   focusX: number;
   focusY: number;
+  /** Shake offset as a fraction of the frame, 0 when still. */
+  dx: number;
+  dy: number;
 }
 
 export function zoomAt(doc: ProjectDoc, t: number): ZoomState {
@@ -163,7 +166,7 @@ export function zoomAt(doc: ProjectDoc, t: number): ZoomState {
       if (!best || z.start >= best.start) best = z;
     }
   }
-  if (!best) return { scale: 1, focusX: 0.5, focusY: 0.5 };
+  if (!best) return { scale: 1, focusX: 0.5, focusY: 0.5, dx: 0, dy: 0 };
   const p = clamp((t - best.start) / best.duration, 0, 1);
   const target = best.toScale !== undefined ? best.scale + (best.toScale - best.scale) * p : best.scale;
   let k = 1;
@@ -173,7 +176,23 @@ export function zoomAt(doc: ProjectDoc, t: number): ZoomState {
     const b = (best.start + best.duration - t) / ramp;
     k = easeInOut(clamp(Math.min(a, b), 0, 1));
   }
-  return { scale: 1 + (target - 1) * k, focusX: best.focusX, focusY: best.focusY };
+  let scale = 1 + (target - 1) * k;
+  let dx = 0;
+  let dy = 0;
+  if (best.shake) {
+    // A new random nudge 30 times a second, fading out over the item; the
+    // picture is held a little larger so the edges never show.
+    const amp = clamp(best.shake, 0, 1) * 0.03 * (1 - p * 0.7);
+    let r = (Math.floor(t * 30) * 2654435761 + 7) >>> 0;
+    const rnd = () => {
+      r = (Math.imul(r, 1664525) + 1013904223) >>> 0;
+      return r / 4294967296 - 0.5;
+    };
+    dx = rnd() * 2 * amp;
+    dy = rnd() * 2 * amp * 0.7;
+    scale = Math.max(scale, 1 + amp * 2.2);
+  }
+  return { scale, focusX: best.focusX, focusY: best.focusY, dx, dy };
 }
 
 /** Largest zoom applied anywhere inside a time span (1 when there is none). */
