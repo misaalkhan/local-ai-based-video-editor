@@ -1,0 +1,35 @@
+{
+  "name": "local-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local AI video editor: timeline, captions, chat-driven edits, export.",
+  "scripts": {
+    "start": "vite build && node server/index.ts",
+    "serve": "node server/index.ts",
+    "dev": "node server/index.ts --dev",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "setup": "bash scripts/setup.sh"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^1.0.10",
+    "onnxruntime-node": "^1.30.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "sherpa-onnx-node": "^1.13.8",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
+  }
+}

@@ -1,0 +1,275 @@
+[
+  {
+    "id": "whoosh",
+    "name": "Whoosh",
+    "tags": [
+      "whoosh",
+      "swoosh",
+      "transition",
+      "swipe",
+      "fast",
+      "air"
+    ],
+    "role": "whoosh",
+    "file": "whoosh.wav",
+    "duration": 0.42,
+    "hit": 0.165
+  },
+  {
+    "id": "whoosh-long",
+    "name": "Long whoosh",
+    "tags": [
+      "whoosh",
+      "swoosh",
+      "transition",
+      "slow",
+      "wind",
+      "pass"
+    ],
+    "role": "whoosh",
+    "file": "whoosh-long.wav",
+    "duration": 0.85,
+    "hit": 0.355
+  },
+  {
+    "id": "swish",
+    "name": "Swish",
+    "tags": [
+      "swish",
+      "whoosh",
+      "quick",
+      "text",
+      "slide",
+      "light"
+    ],
+    "role": "whoosh",
+    "file": "swish.wav",
+    "duration": 0.22,
+    "hit": 0.07
+  },
+  {
+    "id": "pop",
+    "name": "Pop",
+    "tags": [
+      "pop",
+      "bubble",
+      "appear",
+      "popup",
+      "caption",
+      "ui"
+    ],
+    "role": "ui",
+    "file": "pop.wav",
+    "duration": 0.16,
+    "hit": 0
+  },
+  {
+    "id": "blop",
+    "name": "Blop",
+    "tags": [
+      "blop",
+      "bubble",
+      "pop",
+      "soft",
+      "appear",
+      "water"
+    ],
+    "role": "ui",
+    "file": "blop.wav",
+    "duration": 0.2,
+    "hit": 0
+  },
+  {
+    "id": "click",
+    "name": "Click",
+    "tags": [
+      "click",
+      "tap",
+      "button",
+      "ui",
+      "select"
+    ],
+    "role": "ui",
+    "file": "click.wav",
+    "duration": 0.07,
+    "hit": 0
+  },
+  {
+    "id": "tick",
+    "name": "Tick",
+    "tags": [
+      "tick",
+      "tock",
+      "clock",
+      "count",
+      "ui",
+      "small"
+    ],
+    "role": "ui",
+    "file": "tick.wav",
+    "duration": 0.05,
+    "hit": 0
+  },
+  {
+    "id": "ding",
+    "name": "Ding",
+    "tags": [
+      "ding",
+      "bell",
+      "correct",
+      "idea",
+      "point",
+      "highlight"
+    ],
+    "role": "tone",
+    "file": "ding.wav",
+    "duration": 1.1,
+    "hit": 0
+  },
+  {
+    "id": "chime",
+    "name": "Chime",
+    "tags": [
+      "chime",
+      "success",
+      "win",
+      "reveal",
+      "positive",
+      "bell"
+    ],
+    "role": "tone",
+    "file": "chime.wav",
+    "duration": 1.25,
+    "hit": 0.09
+  },
+  {
+    "id": "notification",
+    "name": "Notification",
+    "tags": [
+      "notification",
+      "message",
+      "alert",
+      "comment",
+      "phone"
+    ],
+    "role": "tone",
+    "file": "notification.wav",
+    "duration": 0.5,
+    "hit": 0.13
+  },
+  {
+    "id": "impact",
+    "name": "Impact",
+    "tags": [
+      "impact",
+      "boom",
+      "hit",
+      "thud",
+      "punch",
+      "drop",
+      "bass",
+      "emphasis"
+    ],
+    "role": "impact",
+    "file": "impact.wav",
+    "duration": 0.9,
+    "hit": 0
+  },
+  {
+    "id": "riser",
+    "name": "Riser",
+    "tags": [
+      "riser",
+      "build",
+      "tension",
+      "rise",
+      "sweep",
+      "anticipation",
+      "before"
+    ],
+    "role": "riser",
+    "file": "riser.wav",
+    "duration": 0.2,
+    "hit": 0.075
+  },
+  {
+    "id": "shutter",
+    "name": "Camera shutter",
+    "tags": [
+      "camera",
+      "shutter",
+      "photo",
+      "snap",
+      "picture",
+      "screenshot"
+    ],
+    "role": "ui",
+    "file": "shutter.wav",
+    "duration": 0.2,
+    "hit": 0.075
+  },
+  {
+    "id": "typing",
+    "name": "Typing",
+    "tags": [
+      "typing",
+      "keyboard",
+      "type",
+      "text",
+      "keys",
+      "writing"
+    ],
+    "role": "ui",
+    "file": "typing.wav",
+    "duration": 0.62,
+    "hit": 0
+  },
+  {
+    "id": "error",
+    "name": "Error buzz",
+    "tags": [
+      "error",
+      "wrong",
+      "buzz",
+      "no",
+      "fail",
+      "mistake"
+    ],
+    "role": "tone",
+    "file": "error.wav",
+    "duration": 0.32,
+    "hit": 0.15
+  },
+  {
+    "id": "drop",
+    "name": "Drop",
+    "tags": [
+      "drop",
+      "fall",
+      "down",
+      "slide",
+      "descend",
+      "zoom out"
+    ],
+    "role": "whoosh",
+    "file": "drop.wav",
+    "duration": 0.42,
+    "hit": 0
+  },
+  {
+    "id": "sparkle",
+    "name": "Sparkle",
+    "tags": [
+      "sparkle",
+      "shimmer",
+      "magic",
+      "shine",
+      "glitter",
+      "reveal"
+    ],
+    "role": "tone",
+    "file": "sparkle.wav",
+    "duration": 0.75,
+    "hit": 0.24
+  }
+]

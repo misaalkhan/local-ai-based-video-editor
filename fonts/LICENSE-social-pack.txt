@@ -1,0 +1,14 @@
+The fonts fetched by scripts/fonts.sh beyond the original set come from Google Fonts
+(https://fonts.google.com), each under its own open licence:
+
+SIL Open Font License 1.1 (text in LICENSE-anton.txt applies in the same terms; see each
+family's page on fonts.google.com for its copyright line and reserved font name):
+  Bangers, Pacifico, Lobster, Dancing Script, Caveat, Oswald, Archivo Black, Righteous,
+  Fredoka, Bungee, Alfa Slab One, DM Serif Display, Shrikhand, Comfortaa, Yellowtail,
+  Space Grotesk, Cormorant Garamond
+
+Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0):
+  Luckiest Guy, Permanent Marker
+
+Both licences allow the fonts to be used in videos, including ones that are sold or
+monetised, and to be bundled with this software.

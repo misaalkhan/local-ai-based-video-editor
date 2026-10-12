@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/
+models/
+library/
+bin/
+fonts/*.ttf
+*.log
+.DS_STORE
+.DS_Store

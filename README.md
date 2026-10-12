@@ -1,0 +1,52 @@
+# Local Studio
+
+A local AI video editor and planner for reels and creator content. Drop in footage, describe the edit, tweak on a timeline, export. A planner page keeps your footage library, your goals and a content plan, and starts the edits for you. Everything runs on this Mac; only chat requests go to Claude.
+
+## Start
+
+    npm run setup      # one-time: ffmpeg, whisper.cpp, the speech and alignment models, fonts, music, sounds
+    npm start          # builds the interface and serves it at http://localhost:4747
+
+Or double-click `Local Studio.command` in Finder: it starts the app and opens it in your browser. Close that Terminal window to stop it.
+
+Requirements: macOS on Apple Silicon, [Homebrew](https://brew.sh), Node 23.6 or newer, and the `claude` command signed in to your Claude account (the assistants run through it, so their work counts against your Claude plan).
+
+## How it works
+
+**Home.** Drop clips (or pick a whole folder with "Choose files on this Mac", which uses the files where they are), type what you want, choose a format, press Start. The project opens, the clips are prepared (preview copy, word-timed transcript, face tracking) and your request runs. "Start with an empty project" skips the request.
+
+**The editor.** Left: Media, Sounds, Captions, Text, Overlays, Effects, Transitions and Edit. Middle: the preview (Fit or zoom in). Right: the Assistant and the Transcript. Bottom: the timeline.
+
+- Assistant: describe the edit ("make this a tight 40-second reel with a hook"). It reads the transcript, cuts, adds captions and graphics, then looks at rendered frames of its own work and fixes what is off. Every request can be undone from its message. Stop ends a run.
+- Transcript: select words and press delete to cut them from the video; cut words stay struck through and can be restored. Fix a misheard word, emphasise a word in the captions, move a sentence earlier or to the start, and choose between repeated takes. When more than one person talks, the transcript shows who (S1, S2) at each change of speaker.
+- Timeline: drag, trim, split (S), duplicate (⌘D), delete, undo (⌘Z). Drag clips, text styles, overlays and sound effects from the side panels onto it. Clean up: remove silences, remove fillers, add captions, cut clips to the beat of the music.
+- Captions come from the transcript and follow every cut. Five styles, any of the bundled fonts, and style recipes (a whole look: captions, fonts, colour, pacing, music level) that you can save from a project and apply to the next.
+- Effects: punch-ins, framing (follow the face, fill or show the whole picture with a blurred background), colour looks, warmth, vignette. Transitions between clips. Picture-in-picture for b-roll. Overlays: animated cards, labels, counters, and a reaction GIF search (Tenor key in Settings) that drops a small looping GIF at the playhead, clear of the face.
+- Sounds: your music or the bundled library (named by mood), a comedy and reaction sound pack, voiceover in 26 natural voices (English, Hindi, Spanish, French, Italian, Portuguese, Japanese and Chinese) or the Mac's own, and the final mix: loudness normalisation, noise reduction and voice clean-up on export.
+- Export: 9:16, 16:9, 1:1 or 4:5, 720p to 4K, with the sound brought to -14 LUFS. Files go to `~/Documents/Local Studio` (change it in Settings).
+
+**Plan** (button on the home screen). Your footage library in one place: drop everything you have shot and the planner describes each clip. It asks about your account, audience, platforms, goals and capacity, saves a profile, keeps notes on what works on each platform, turns posts you like into style cards, and builds a dated content plan with a hook, storyline, footage, caption and hashtags per post. "Make it" creates the project and queues the edit, which runs when you open it. Nothing is posted anywhere by the app.
+
+**Settings** (home screen): which Claude model the assistants use, the export folder, and a Tenor key for reaction GIF search.
+
+## Languages
+
+If your videos are in more than one language, set them on the Plan page (You → Edit → Languages). Speech detection is then limited to those, and a clip detected as something else falls back to the first one. Hindi and Hinglish are a special case: with `hi` in the list, every clip is transcribed in whisper's Hindi mode, which hears the Hindi right and keeps the English in English. Put `en` first (`en, hi`) for Hinglish captions in Latin letters (Hindi passages are romanised: "ladki", "accha", "kya hua"); put `hi` first to keep Hindi passages in Devanagari. Captions render in Devanagari, Arabic and other scripts.
+
+## Where things live
+
+- `data/` holds projects, the footage library and the planner's files (set `STUDIO_DATA` to move it). Projects reference your files where they are; nothing is copied unless you upload through the browser.
+- `library/` holds the music, sound effects and b-roll shared by every project; add your own files there.
+- `models/` holds the speech models, downloaded by setup.
+
+## Licences
+
+Fonts in `fonts/` are under the SIL Open Font License or Apache 2.0 (`fonts/LICENSE-*.txt`). Bundled music is by Kevin MacLeod under CC BY 4.0; the assistant gives you the credit line for the caption when it uses a track (`library/music/LICENSE-music.txt`). The sound pack comes from Mixkit under its free licence (`library/sfx/LICENSE-pack.txt`). Model files keep their own licences.
+
+## Development
+
+    npm run dev        # serves with live reload
+    npm test           # unit tests
+    npm run typecheck
+
+Layout: `shared/` (timeline model, edit operations, drawing code used by both preview and export, captions, beat tracking), `server/` (API, media pipeline, transcription and alignment, export, the assistants and their tools, the planner), `src/` (React interface), `scripts/` (setup, font, music and sound downloads, maintenance checks), `test/`.
