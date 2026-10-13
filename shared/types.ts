@@ -130,6 +130,8 @@ export interface SourceClip extends ItemMeta {
   ramp?: SpeedKeyframe[];
   /** Tone and dynamics of the clip's sound. */
   audioFx?: AudioFx;
+  /** Let the pitch rise and fall with the speed (tape style) instead of staying put. */
+  pitchFollowsSpeed?: boolean;
   /** Volume over the clip's life, as multipliers of `volume` at moments (seconds after the clip starts), changing evenly between them. */
   volumeKeys?: VolumeKeyframe[];
   /** Play the source range backwards. */

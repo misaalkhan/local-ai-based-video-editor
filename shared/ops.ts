@@ -1513,6 +1513,7 @@ export function sanitizeDoc(doc: ProjectDoc, hasMedia?: (id: ID) => boolean): Pr
     if (ramp.length) f.ramp = ramp;
     else delete f.ramp;
     if (!c.reverse) delete f.reverse;
+    if (!c.pitchFollowsSpeed) delete f.pitchFollowsSpeed;
     if (c.interpolate !== 'blend' && c.interpolate !== 'flow') delete f.interpolate;
     const keys = Array.isArray(c.volumeKeys) ? c.volumeKeys.filter((k) => k && Number.isFinite(k.t) && Number.isFinite(k.gain)).map((k) => ({ t: Math.max(0, k.t), gain: clamp(k.gain, 0, 4) })).sort((a, b) => a.t - b.t) : [];
     if (keys.length) f.volumeKeys = keys;

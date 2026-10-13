@@ -1180,6 +1180,7 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
         clear_ramp: B('Remove the ramp and go back to the plain speed.'),
         reverse: B('Play backwards.'),
         interpolate: S('Frames for slowed footage on export.', ['none', 'blend', 'flow']),
+        tape: B('Let the pitch drop and rise with the speed (the slowed-down record gag); default keeps the pitch.'),
       },
       ['clip_id'],
     ),
@@ -1224,6 +1225,10 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
         const mode = str(a.interpolate);
         patch.interpolate = mode === 'blend' || mode === 'flow' ? mode : undefined;
         notes.push(mode === 'none' ? 'frames repeated' : `${mode} interpolation`);
+      }
+      if (a.tape !== undefined) {
+        patch.pitchFollowsSpeed = !!a.tape || undefined;
+        notes.push(a.tape ? 'pitch follows speed' : 'pitch kept');
       }
       if (!notes.length) bad('Nothing to change: give speed, preset, ramp, clear_ramp, reverse or interpolate.');
       const d = ops.updateClip(v.doc, it.kind, it.id, patch, media.duration);

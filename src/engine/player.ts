@@ -333,6 +333,7 @@ export class Player {
     }
     // Browsers accept rates from 1/16 to 16; a ramp changes the rate as it goes.
     const rate = clamp(speedAt(clip, expected), 0.0625, 16);
+    el.preservesPitch = !clip.pitchFollowsSpeed;
     if (this.playing) {
       if (el.paused) {
         if (Math.abs(el.currentTime - expected) > 0.08) this.seekTo(slot, expected);

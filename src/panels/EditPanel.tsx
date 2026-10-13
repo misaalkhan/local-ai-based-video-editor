@@ -328,6 +328,7 @@ function SpeedEditor({ kind, clip, start }: { kind: 'main' | 'overlay'; clip: So
       )}
       <div className="row wrap">
         <Toggle checked={!!clip.reverse} onChange={(v) => now({ reverse: v || undefined }, v ? 'Reverse' : 'Play forwards')} label="Reverse" />
+        <Toggle checked={!!clip.pitchFollowsSpeed} onChange={(v) => now({ pitchFollowsSpeed: v || undefined }, v ? 'Pitch follows speed' : 'Keep the pitch')} label="Pitch follows speed (tape)" />
       </div>
       <Field label="Slow motion frames (export)">
         <Segmented

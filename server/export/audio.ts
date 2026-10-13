@@ -33,8 +33,9 @@ export const SAMPLE_RATE = 48000;
 const n = (v: number) => (Math.round(v * 1e6) / 1e6).toString();
 const samples = (t: number) => Math.max(0, Math.round(t * SAMPLE_RATE));
 
-/** ffmpeg's atempo accepts 0.5 to 100 per instance; chain it for slower speeds. */
-function tempo(speed: number): string[] {
+/** ffmpeg's atempo accepts 0.5 to 100 per instance; chain it for slower speeds. Tape style resamples instead, so the pitch moves with the speed. */
+function tempo(speed: number, tape = false): string[] {
+  if (tape) return Math.abs(speed - 1) > 1e-4 ? [`asetrate=${Math.round(SAMPLE_RATE * speed)}`, `aresample=${SAMPLE_RATE}`] : [];
   const out: string[] = [];
   let s = speed;
   while (s < 0.5) {
@@ -177,7 +178,7 @@ export function planAudio(p: Project, doc: ProjectDoc): AudioPlan {
       // Each stretch of the ramp at its own tempo, joined end to end.
       const labels = tempoPieces(clip).map((piece) => {
         const label = `r${counter++}`;
-        const part = [`atrim=start_sample=${samples(piece.a)}:end_sample=${samples(piece.b)}`, 'asetpts=PTS-STARTPTS', ...tempo(piece.tempo)];
+        const part = [`atrim=start_sample=${samples(piece.a)}:end_sample=${samples(piece.b)}`, 'asetpts=PTS-STARTPTS', ...tempo(piece.tempo, !!clip.pitchFollowsSpeed)];
         chains.push(`[${tap(media)}]${part.join(',')}[${label}]`);
         return label;
       });
@@ -185,7 +186,7 @@ export function planAudio(p: Project, doc: ProjectDoc): AudioPlan {
       chains.push(labels.length === 1 ? `[${labels[0]}]anull[${src}]` : `${labels.map((l) => `[${l}]`).join('')}concat=n=${labels.length}:v=0:a=1[${src}]`);
     } else {
       src = tap(media);
-      f.push(`atrim=start_sample=${samples(clip.in)}:end_sample=${samples(clip.out)}`, 'asetpts=PTS-STARTPTS', ...tempo(clip.speed));
+      f.push(`atrim=start_sample=${samples(clip.in)}:end_sample=${samples(clip.out)}`, 'asetpts=PTS-STARTPTS', ...tempo(clip.speed, !!clip.pitchFollowsSpeed));
     }
     if (clip.reverse) f.push('areverse');
     f.push(...ffmpegAudioFilters(clip.audioFx));
