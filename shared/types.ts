@@ -48,6 +48,8 @@ export interface Framing {
 
 /** Colour adjustments; every value is a multiplier where 1 leaves the picture unchanged. */
 export interface ClipFx {
+  /** Camera-shake removal, 0..1: how much of the motion to smooth away (the picture is cropped a little to make room). */
+  stabilize?: number;
   brightness?: number;
   contrast?: number;
   saturation?: number;
@@ -381,6 +383,8 @@ export interface MediaAsset {
   analysis: JobState;
   transcript: JobState;
   faces?: JobState;
+  /** Camera motion analysis for stabilising, run on demand. */
+  stability?: JobState;
   /** Progress of whichever step is running, 0..1. */
   progress?: number;
   stage?: string;
@@ -417,6 +421,13 @@ export interface Word {
 export interface Transcript {
   language: string;
   words: Word[];
+}
+
+/** How the picture drifted over a video: the content's displacement from the first frame, every `interval` seconds. */
+export interface MotionTrack {
+  interval: number;
+  /** [x, y] as fractions of the frame's width and height. */
+  path: [number, number][];
 }
 
 /** Where the subject's face is over the length of a clip, sampled a few times a second. */

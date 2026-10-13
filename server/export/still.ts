@@ -8,7 +8,7 @@ import type { Canvas, Image } from '@napi-rs/canvas';
 import { FFMPEG } from '../config.ts';
 import { PROXY_MAX, proxyFile } from '../media.ts';
 import type { Project } from '../store.ts';
-import { getFaces, getWords } from '../store.ts';
+import { getFaces, getStability, getWords } from '../store.ts';
 import type { ID, MediaAsset, ProjectDoc, SourceClip } from '../../shared/types.ts';
 import { renderFrame } from '../../shared/draw.ts';
 import type { FrameProvider, LayerImage } from '../../shared/draw.ts';
@@ -128,6 +128,7 @@ export async function renderStill(p: Project, source: ProjectDoc, t: number, opt
       return m?.kind === 'image' ? stillLayer(m) : undefined;
     },
     face: (id) => getFaces(p, id),
+    stability: (id) => getStability(p, id),
     image: (id) => {
       const img = images.get(id);
       return img ? { image: img, width: img.width, height: img.height } : undefined;

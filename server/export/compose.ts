@@ -15,7 +15,7 @@ import type { Canvas, Image } from '@napi-rs/canvas';
 import { FFMPEG, FONTS_DIR } from '../config.ts';
 import { decodeSpec, proxyFile } from '../media.ts';
 import type { Project } from '../store.ts';
-import { getFaces, getWords } from '../store.ts';
+import { getFaces, getStability, getWords } from '../store.ts';
 import type { ID, MediaAsset, ProjectDoc, SourceClip } from '../../shared/types.ts';
 import { FONT_FILES } from '../../shared/fonts.ts';
 import { renderFrame } from '../../shared/draw.ts';
@@ -25,6 +25,7 @@ import { buildCards, timelineWords } from '../../shared/captions.ts';
 import type { CaptionCard } from '../../shared/captions.ts';
 import {
   contentDuration,
+  clipGeometry,
   framingAt,
   isRemapped,
   layerGeometry,
@@ -74,15 +75,16 @@ export function planLayer(
   const faces = clip.framing?.track ? getFaces(p, media.id) : undefined;
   const times: number[] = [clip.in];
   if (faces) for (let t = clip.in; t < clip.out; t += Math.max(1 / fps, faces.interval / 2)) times.push(t);
-  // Motion keyframes move the crop too: sample the clip's life so the decoded region covers every position.
-  if (clip.motion?.length) for (let t = clip.in; t < clip.out; t += Math.max(1 / fps, 0.1)) times.push(t);
+  // Motion keyframes and stabilising move the crop too: sample the clip's life so the decoded region covers every position.
+  const stab = clip.fx?.stabilize ? getStability(p, media.id) : undefined;
+  if (clip.motion?.length || stab) for (let t = clip.in; t < clip.out; t += Math.max(1 / fps, 0.1)) times.push(t);
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
   let density = 0;
   for (const t of times) {
-    const g = layerGeometry(media.width, media.height, W, H, framingAt(clip.framing, faces, t, clip.motion, localAt(clip, t)));
+    const g = clipGeometry(media.width, media.height, W, H, framingAt(clip.framing, faces, t, clip.motion, localAt(clip, t)), stab ? { track: stab, t, strength: clip.fx!.stabilize! } : undefined);
     x0 = Math.min(x0, g.src.x);
     y0 = Math.min(y0, g.src.y);
     x1 = Math.max(x1, g.src.x + g.src.w);
@@ -569,6 +571,7 @@ export class Compositor {
         return f && f.clipId === seg.clip.id ? { image: f.canvas, region: f.plan.region, k: f.plan.outW / f.plan.region.w } : undefined;
       },
       face: (id) => getFaces(this.p, id),
+      stability: (id) => getStability(this.p, id),
       image: (id) => {
         const img = this.images.get(id);
         return img ? { image: img, width: img.width, height: img.height } : undefined;

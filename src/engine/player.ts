@@ -8,11 +8,11 @@
 
 import { parseCube } from '../../shared/color.ts';
 import type { Lut3D } from '../../shared/color.ts';
-import type { FaceTrack, ID, MediaAsset, ProjectDoc, SourceClip } from '../../shared/types.ts';
+import type { FaceTrack, ID, MediaAsset, MotionTrack, ProjectDoc, SourceClip } from '../../shared/types.ts';
 import { renderFrame } from '../../shared/draw.ts';
 import type { FrameProvider, LayerImage } from '../../shared/draw.ts';
 import type { Ctx2D, DrawableImage } from '../../shared/graphics.ts';
-import { clamp, clipGainAt, isRemapped, segAt, sourceAt, speedAt, srcDuration, transitionLength } from '../../shared/timeline.ts';
+import { clamp, clipGainAt, clipGeometry, isRemapped, segAt, sourceAt, speedAt, srcDuration, stabShift, transitionLength } from '../../shared/timeline.ts';
 import type { MainSeg, VisualRef } from '../../shared/timeline.ts';
 import type { Derived } from '../store.ts';
 
@@ -21,6 +21,7 @@ export interface PlayerData {
   doc: ProjectDoc;
   media: Record<ID, MediaAsset>;
   faces: Record<ID, FaceTrack>;
+  stability: Record<ID, MotionTrack>;
   derived: Derived;
 }
 
@@ -495,6 +496,7 @@ export class Player {
         return m && b && b.frozen && b.clipId === seg.clip.id ? this.layerOf(b, m) : undefined;
       },
       face: (id) => d.faces[id],
+      stability: (id) => d.stability[id],
       image: (id): DrawableImage | undefined => {
         const img = this.imageFor(id);
         return img ? { image: img, width: img.naturalWidth, height: img.naturalHeight } : undefined;
@@ -606,4 +608,4 @@ export class Player {
 export const player = new Player();
 
 // For the dev scripts in data/dev, which drive the page from outside.
-Object.assign(globalThis, { __studioPlayer: player });
+Object.assign(globalThis, { __studioPlayer: player, __studioShared: { clipGeometry, stabShift } });

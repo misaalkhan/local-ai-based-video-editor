@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ExportJob,
   FaceTrack,
+  MotionTrack,
   HistoryEntry,
   ID,
   MediaAsset,
@@ -58,6 +59,7 @@ export interface EditorState {
   media: Record<ID, MediaAsset>;
   words: Record<ID, Word[]>;
   faces: Record<ID, FaceTrack>;
+  stability: Record<ID, MotionTrack>;
   chat: ChatMessage[];
   snapshots: Snapshot[];
   history: HistoryEntry[];
@@ -97,6 +99,7 @@ export const useStore = create<EditorState>(() => ({
   media: {},
   words: {},
   faces: {},
+  stability: {},
   chat: [],
   snapshots: [],
   history: [],
@@ -282,6 +285,7 @@ export function setUi(patch: Partial<UiState>): void {
 let unsubscribe: (() => void) | null = null;
 const wordsRev: Record<ID, number> = {};
 const facesRev: Record<ID, number> = {};
+const stabilityRev: Record<ID, number> = {};
 
 function loadDerivedFiles(projectId: ID, m: MediaAsset): void {
   if (m.transcript === 'done' && wordsRev[m.id] !== m.rev) {
@@ -304,6 +308,17 @@ function loadDerivedFiles(projectId: ID, m: MediaAsset): void {
       })
       .catch(() => {
         delete facesRev[m.id];
+      });
+  }
+  if (m.stability === 'done' && stabilityRev[m.id] !== m.rev) {
+    stabilityRev[m.id] = m.rev;
+    api
+      .stability(projectId, m)
+      .then((f) => {
+        if (get().projectId === projectId) set((s) => ({ stability: { ...s.stability, [m.id]: f } }));
+      })
+      .catch(() => {
+        delete stabilityRev[m.id];
       });
   }
 }
@@ -386,6 +401,7 @@ export async function openProject(projectId: ID): Promise<void> {
       history: payload.history,
       words: {},
       faces: {},
+      stability: {},
       selection: null,
       undoStack: [],
       redoStack: [],
@@ -411,7 +427,8 @@ export function closeProject(): void {
   void flushSave();
   for (const k of Object.keys(wordsRev)) delete wordsRev[k];
   for (const k of Object.keys(facesRev)) delete facesRev[k];
-  set({ projectId: null, doc: null, draft: null, media: {}, words: {}, faces: {}, chat: [], selection: null, undoStack: [], redoStack: [], queued: null, pending: null, uploads: {} });
+  for (const k of Object.keys(stabilityRev)) delete stabilityRev[k];
+  set({ projectId: null, doc: null, draft: null, media: {}, words: {}, faces: {}, stability: {}, chat: [], selection: null, undoStack: [], redoStack: [], queued: null, pending: null, uploads: {} });
 }
 
 /** True while the assistant is in the middle of a turn. Manual edits wait, so the two do not collide. */

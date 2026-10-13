@@ -17,6 +17,7 @@ import { PROJECTS_DIR } from './config.ts';
 import type {
   ChatMessage,
   FaceTrack,
+  MotionTrack,
   HistoryEntry,
   ID,
   MediaAsset,
@@ -386,6 +387,23 @@ export function getFaces(p: Project, mediaId: ID): FaceTrack | undefined {
 export function setFaces(p: Project, mediaId: ID, track: FaceTrack): void {
   writeJson(path.join(mediaDir(p, mediaId), 'faces.json'), track);
   p.faces.set(mediaId, track);
+}
+
+const stability = new Map<string, MotionTrack | null>();
+
+/** The camera path measured for stabilising, when the analysis has run. */
+export function getStability(p: Project, mediaId: ID): MotionTrack | undefined {
+  const key = `${p.id}/${mediaId}`;
+  if (!stability.has(key)) {
+    const file = path.join(mediaDir(p, mediaId), 'stability.json');
+    stability.set(key, fs.existsSync(file) ? readJson<MotionTrack | null>(file, null) : null);
+  }
+  return stability.get(key) ?? undefined;
+}
+
+export function setStability(p: Project, mediaId: ID, track: MotionTrack): void {
+  writeJson(path.join(mediaDir(p, mediaId), 'stability.json'), track);
+  stability.set(`${p.id}/${mediaId}`, track);
 }
 
 export function forgetDerived(p: Project, mediaId: ID): void {

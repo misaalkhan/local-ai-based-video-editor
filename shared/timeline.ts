@@ -17,6 +17,7 @@ import type {
   MotionKeyframe,
   Ease,
   SpeedKeyframe,
+  MotionTrack,
 } from './types.ts';
 
 export const EPS = 1e-6;
@@ -257,6 +258,64 @@ export function layerGeometry(
   const dw = sw * s;
   const dh = sh * s;
   return { src: { x: sx, y: sy, w: sw, h: sh }, dst: { x: (W - dw) / 2, y: (H - dh) / 2, w: dw, h: dh } };
+}
+
+// ---------------------------------------------------------------------------
+// Stabilising: the crop follows a smoothed version of the measured camera
+// path, so the shake (the difference between the two) cancels out. The
+// picture is zoomed by a margin to leave room for the shift.
+
+/** How much of each edge is given up at a strength, as a fraction of the frame. */
+export function stabMargin(strength: number): number {
+  return 0.03 + 0.09 * clamp(strength, 0, 1);
+}
+
+const prefix = new WeakMap<MotionTrack, { x: Float64Array; y: Float64Array }>();
+
+/** Mean of the path over a window of samples [i0, i1]. */
+function pathMean(track: MotionTrack, i0: number, i1: number): { x: number; y: number } {
+  let sums = prefix.get(track);
+  if (!sums) {
+    const n = track.path.length;
+    sums = { x: new Float64Array(n + 1), y: new Float64Array(n + 1) };
+    for (let i = 0; i < n; i++) {
+      sums.x[i + 1] = sums.x[i] + track.path[i][0];
+      sums.y[i + 1] = sums.y[i] + track.path[i][1];
+    }
+    prefix.set(track, sums);
+  }
+  const count = i1 - i0 + 1;
+  return { x: (sums.x[i1 + 1] - sums.x[i0]) / count, y: (sums.y[i1 + 1] - sums.y[i0]) / count };
+}
+
+/** The shift (fractions of the frame) that steadies the picture at source time `t`. */
+export function stabShift(track: MotionTrack, t: number, strength: number): { x: number; y: number } {
+  const n = track.path.length;
+  if (!n) return { x: 0, y: 0 };
+  const i = clamp(Math.round(t / track.interval), 0, n - 1);
+  const radius = Math.round((0.15 + 0.85 * clamp(strength, 0, 1)) / track.interval);
+  const mean = pathMean(track, Math.max(0, i - radius), Math.min(n - 1, i + radius));
+  const raw = track.path[i];
+  const m = stabMargin(strength);
+  return { x: clamp(raw[0] - mean.x, -m, m), y: clamp(raw[1] - mean.y, -m, m) };
+}
+
+/** layerGeometry with stabilising applied: zoomed by the margin and shifted against the shake. */
+export function clipGeometry(
+  mw: number,
+  mh: number,
+  W: number,
+  H: number,
+  framing: Framing = DEFAULT_FRAMING,
+  stab?: { track: MotionTrack; t: number; strength: number },
+): { src: Rect; dst: Rect } {
+  if (!stab || !(stab.strength > 0)) return layerGeometry(mw, mh, W, H, framing);
+  const m = stabMargin(stab.strength);
+  const g = layerGeometry(mw, mh, W, H, { ...framing, scale: Math.max(0.1, framing.scale || 1) / (1 - 2 * m) });
+  const shift = stabShift(stab.track, stab.t, stab.strength);
+  g.src.x = clamp(g.src.x + shift.x * mw, 0, mw - g.src.w);
+  g.src.y = clamp(g.src.y + shift.y * mh, 0, mh - g.src.h);
+  return g;
 }
 
 /** Centre of the subject's face `t` seconds into a clip's source, or null when no face was seen nearby. */

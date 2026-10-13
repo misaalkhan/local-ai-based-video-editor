@@ -11,6 +11,7 @@ import type {
   Snapshot,
   Transcript,
   FaceTrack,
+  MotionTrack,
   PlanItem,
   Profile,
   Recipe,
@@ -129,6 +130,8 @@ export const api = {
   transcript: (id: ID, m: MediaAsset) =>
     request<Transcript>('GET', `/api/projects/${id}/media/${m.id}/transcript.json?r=${m.rev}`),
   faces: (id: ID, m: MediaAsset) => request<FaceTrack>('GET', `/api/projects/${id}/media/${m.id}/faces.json?r=${m.rev}`),
+  stability: (id: ID, m: MediaAsset) => request<MotionTrack>('GET', `/api/projects/${id}/media/${m.id}/stability.json?r=${m.rev}`),
+  stabilize: (id: ID, mediaId: ID) => request<{ ok: boolean; state: string }>('POST', `/api/projects/${id}/media/${mediaId}/stabilize`),
 
   /** Run one of the editing tools the assistant also uses (remove silences, add captions, ...). */
   op: (id: ID, tool: string, args: Record<string, unknown> = {}) =>

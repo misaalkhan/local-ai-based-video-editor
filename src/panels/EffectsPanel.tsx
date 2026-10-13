@@ -4,8 +4,9 @@ import { player } from '../engine/player.ts';
 import { usePlayerTime } from '../hooks.ts';
 import { DEFAULT_FRAMING, framingAt } from '../../shared/timeline.ts';
 import { LOOKS } from '../../shared/draw.ts';
-import { useDerived, useDoc, useStore } from '../store.ts';
+import { fail, useDerived, useDoc, useStore } from '../store.ts';
 import { addZoomAtPlayhead, commit, edit, live, mediaDur, runTool } from '../actions.ts';
+import { api } from '../api.ts';
 import { Button, Field, Section, Segmented, Slider, Toggle } from '../ui.tsx';
 import { CurveEditor, HslControls, LightAndColour, LutControls } from './ColorControls.tsx';
 
@@ -15,6 +16,7 @@ export function EffectsPanel() {
   const doc = useDoc()!;
   const selection = useStore((s) => s.selection);
   const media = useStore((s) => s.media);
+  const projectId = useStore((s) => s.projectId)!;
   const kind = selection?.kind === 'main' || selection?.kind === 'overlay' ? selection.kind : null;
   const clip: MediaMainClip | OverlayClip | undefined =
     kind === 'main'
@@ -115,6 +117,25 @@ export function EffectsPanel() {
               <Field label="Zoom">
                 <Slider value={framing.scale} min={1} max={3} step={0.01} onChange={(v) => setFraming({ scale: v })} onCommit={() => commit('Zoom')} format={(v) => `${v.toFixed(2)}×`} />
               </Field>
+              {m.kind === 'video' && (
+                <Field label="Stabilise">
+                  <Slider
+                    value={fx.stabilize ?? 0}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onChange={(v) => setFx({ stabilize: v || undefined })}
+                    onCommit={() => {
+                      commit('Stabilise');
+                      if ((fx.stabilize ?? 0) > 0 && m.stability !== 'done' && m.stability !== 'running') api.stabilize(projectId, m.id).catch(fail);
+                    }}
+                    format={(v) => (v ? `${Math.round(v * 100)}%` : 'Off')}
+                  />
+                  {(fx.stabilize ?? 0) > 0 && m.stability === 'running' && <div className="hint">Measuring the camera's motion…</div>}
+                  {(fx.stabilize ?? 0) > 0 && (m.stability === 'error' || m.stability === 'skipped') && <div className="hint">The camera motion could not be measured for this file.</div>}
+                  {(fx.stabilize ?? 0) > 0 && m.stability === 'done' && <div className="hint">Smooths out handheld shake; the picture is cropped by {Math.round((3 + 9 * (fx.stabilize ?? 0)) * 2)}% to make room.</div>}
+                </Field>
+              )}
               {!framing.track && (
                 <>
                   <Field label="Left ↔ right">

@@ -20,6 +20,7 @@ import {
   summarize,
   trashProject,
 } from './store.ts';
+import { analyzeStability } from './stabilize.ts';
 import { importMedia, proxyFile, removeMedia, resumePending, retranscribe } from './media.ts';
 import { MEDIA_EXT, extOf } from './probe.ts';
 import { addPlanItem, copyMedia, getRecipes, getSettings, getStudio, layOut, removePlanItem, removeRecipe, removeReference, saveProfile, saveSettings, updatePlanItem } from './studio.ts';
@@ -36,6 +37,7 @@ const MEDIA_FILES: Record<string, string> = {
   'envelope.bin': 'envelope.bin',
   'transcript.json': 'transcript.json',
   'faces.json': 'faces.json',
+  'stability.json': 'stability.json',
 };
 
 /** Media files in a folder, so a whole shoot can be added by pointing at it. */
@@ -292,6 +294,15 @@ export function registerRoutes(r: Router): void {
   r.delete('/api/projects/:pid/media/:mid', (c) => {
     removeMedia(getProject(c.params.pid), c.params.mid);
     c.json({ ok: true });
+  });
+
+  /** Measure a video's camera motion for stabilising (once). */
+  r.post('/api/projects/:pid/media/:mid/stabilize', (c) => {
+    const p = getProject(c.params.pid);
+    const m = p.media.get(c.params.mid);
+    if (!m) throw new HttpError(404, 'no such media');
+    void analyzeStability(p, m.id);
+    c.json({ ok: true, state: p.media.get(m.id)?.stability ?? 'pending' });
   });
 
   r.post('/api/projects/:pid/media/:mid/retranscribe', (c) => {

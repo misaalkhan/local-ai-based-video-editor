@@ -10,6 +10,7 @@ import { ASPECTS, aspectOf } from '../../shared/types.ts';
 import * as ops from '../../shared/ops.ts';
 import { DEFAULT_FRAMING, clamp, contentDuration, layoutMain, snap, sourceAt, srcDuration } from '../../shared/timeline.ts';
 import { extractStill } from '../stills.ts';
+import { analyzeStability } from '../stabilize.ts';
 import { detectSilences } from '../../shared/silence.ts';
 import { FONT_FAMILIES, FONT_NOTES, nearestWeight } from '../../shared/fonts.ts';
 import { GRAPHIC_PRESETS, GRAPHIC_TEMPLATES } from '../../shared/graphics.ts';
@@ -827,7 +828,9 @@ export const TOOLS: ToolDef[] = [
         if (!cur) continue;
         const from = a.copy_from ? sourceClip(d, findItem(v, a.copy_from).kind as 'main' | 'overlay', str(a.copy_from)) : undefined;
         if (a.copy_from && !from) bad(`No clip ${a.copy_from} to copy the grade from.`);
-        const base = a.look ? (LOOKS[str(a.look)]?.fx ?? bad(`Unknown look "${a.look}". Use ${Object.keys(LOOKS).join(', ')}.`)) : from ? from.fx ?? {} : cur.fx ?? {};
+        // A copied grade or a look brings its colour, not the clip's own stabilising.
+        const own = { ...(cur.fx?.stabilize ? { stabilize: cur.fx.stabilize } : {}) };
+        const base = { ...(a.look ? (LOOKS[str(a.look)]?.fx ?? bad(`Unknown look "${a.look}". Use ${Object.keys(LOOKS).join(', ')}.`)) : from ? { ...(from.fx ?? {}), stabilize: undefined } : cur.fx ?? {}), ...own };
         const signed = (key: string, lo = -1, hi = 1) => (a[key] !== undefined ? { [key]: clamp(num(a[key], key), lo, hi) || undefined } : {});
         const curve = (key: string) => {
           const pts = a[key];
@@ -1081,6 +1084,29 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       save(ctx, d, 'set_speed', `${notes.join(', ')} on ${it.id}`);
       const now = findItem(view(ctx.p), it.id);
       return { text: `${it.kind} clip ${it.id}: ${notes.join(', ')}. It now runs ${sec(now.start)}-${sec(now.end)}s. ${after(d)}` };
+    },
+  },
+  {
+    name: 'stabilize_clip',
+    description: 'Smooth out camera shake on a main or b-roll clip (handheld walking shots, vlogs, phone footage). strength 0-1: 0.4 takes the jitter out of a steady hand, 0.7 for walking, 1 for running or a car; the picture is cropped by 6-24% to make room, so keep it low on tight framings. 0 turns it off. The camera motion is measured the first time (a few seconds per minute of footage).',
+    schema: obj({ clip_id: S('A main or b-roll clip id.'), strength: N('0-1, default 0.5.') }, ['clip_id']),
+    label: () => 'Stabilising',
+    run: async (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.clip_id);
+      if (it.kind !== 'main' && it.kind !== 'overlay') bad('Stabilising applies to main and b-roll clips.');
+      const clip = sourceClip(v.doc, it.kind, it.id);
+      if (!clip) bad('No such clip.');
+      const media = ctx.p.media.get(clip.mediaId);
+      if (!media || media.kind !== 'video') bad('Only video can be stabilised.');
+      const strength = clamp(optNum(a.strength, 'strength') ?? 0.5, 0, 1);
+      if (strength > 0) {
+        const track = await analyzeStability(ctx.p, media.id);
+        if (!track) bad('The camera motion could not be measured for this file.');
+      }
+      const d = ops.updateClip(ctx.p.doc, it.kind, it.id, { fx: { ...(clip.fx ?? {}), stabilize: strength || undefined } }, media.duration);
+      save(ctx, d, 'stabilize_clip', `${strength ? `Stabilised ${Math.round(strength * 100)}%` : 'Stabilising off'} on ${it.id}`);
+      return { text: strength ? `Stabilised ${it.kind} clip ${it.id} at ${Math.round(strength * 100)}% (cropped ${Math.round((3 + 9 * strength) * 2)}%).` : `Stabilising is off on ${it.id}.` };
     },
   },
   {

@@ -3,13 +3,13 @@
 // (video frames, stills) through a FrameProvider. That is why an export looks
 // like what was on screen.
 
-import type { CaptionSettings, CaptionStyle, ChromaKey, ClipFx, FaceTrack, ID, MainClip, OverlayClip, ProjectDoc, Transform } from './types.ts';
+import type { CaptionSettings, CaptionStyle, ChromaKey, ClipFx, FaceTrack, ID, MainClip, MotionTrack, OverlayClip, ProjectDoc, Transform } from './types.ts';
 import type { CaptionCard } from './captions.ts';
 import { cardAt, displayWord } from './captions.ts';
 import { applyBaked, bakeGrade, needsGrade } from './color.ts';
 import type { Lut3D } from './color.ts';
 import type { MainSeg, Rect, Scene, VisualRef } from './timeline.ts';
-import { clamp, framingAt, layerGeometry, sceneAt, sourceAt, srcDuration } from './timeline.ts';
+import { clamp, clipGeometry, framingAt, layerGeometry, sceneAt, sourceAt, srcDuration } from './timeline.ts';
 import { fontString } from './fonts.ts';
 import type { Ctx2D, DrawableImage } from './graphics.ts';
 import { clearShadow, drawGraphic, easeInOut, easeOutBack, easeOutCubic, isRTL, refSize, roundRect, setShadow } from './graphics.ts';
@@ -31,6 +31,8 @@ export interface FrameProvider {
   /** The last frame of the clip a transition is coming from. */
   frozen?(seg: MainSeg): LayerImage | undefined;
   face?(mediaId: ID): FaceTrack | undefined;
+  /** The measured camera path of a video, for stabilising; undefined until analysed. */
+  stability?(mediaId: ID): MotionTrack | undefined;
   /** A still image, for image graphics. */
   image?(mediaId: ID): DrawableImage | undefined;
   /** A small offscreen canvas for effects, reused between frames. */
@@ -141,6 +143,14 @@ function gradeInto(env: Env, fx: ClipFx, img: LayerImage, s: Rect, dst: Rect, fi
   return { canvas: sc.canvas, w, h };
 }
 
+/** What a clip's stabilising needs at this moment, when it is on and the camera path is known. */
+function stabOf(env: Env, ref: VisualRef): { track: MotionTrack; t: number; strength: number } | undefined {
+  const strength = ref.clip.fx?.stabilize ?? 0;
+  if (!(strength > 0)) return undefined;
+  const track = env.o.provider.stability?.(ref.clip.mediaId);
+  return track ? { track, t: ref.sourceTime, strength } : undefined;
+}
+
 /** Draw a media clip's picture into the frame. Returns false when the picture is not available. */
 function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: number): boolean {
   const { ctx, W, H, o } = env;
@@ -148,7 +158,7 @@ function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: 
   const size = o.provider.mediaSize(ref.clip.mediaId);
   if (!size || !size.width || !size.height) return false;
   const framing = framingAt(ref.clip.framing, o.provider.face?.(ref.clip.mediaId), ref.sourceTime, ref.clip.motion, env.t - ref.clipStart);
-  const { src, dst } = layerGeometry(size.width, size.height, W, H, framing);
+  const { src, dst } = clipGeometry(size.width, size.height, W, H, framing, stabOf(env, ref));
   const toImage = (r: Rect): Rect => ({
     x: (r.x - img.region.x) * img.k,
     y: (r.y - img.region.y) * img.k,

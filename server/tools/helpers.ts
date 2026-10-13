@@ -458,6 +458,7 @@ export function describeTimeline(p: Project): string {
     const extra = [
       cl.ramp?.length ? `speed ramp ${cl.ramp.map((k) => `${k.speed}x`).join('>')}` : cl.speed !== 1 ? `speed ${cl.speed}x` : '',
       cl.reverse ? 'reversed' : '',
+      cl.fx?.stabilize ? `stabilised ${Math.round(cl.fx.stabilize * 100)}%` : '',
       cl.interpolate && (cl.ramp?.length ? cl.ramp.some((k) => k.speed < 1) : cl.speed < 1) ? `${cl.interpolate} slow motion` : '',
       cl.muted ? 'muted' : cl.volume !== 1 ? `volume ${gainToDb(cl.volume).toFixed(0)} dB` : '',
       cl.transition ? `arrives with ${cl.transition.type} ${cl.transition.duration}s` : '',
