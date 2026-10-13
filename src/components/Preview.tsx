@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as RPointerEvent } from 'react';
 import { player } from '../engine/player.ts';
 import { useElementSize, usePlayerTime, usePlaying } from '../hooks.ts';
-import { setUi, useDerived, useDoc, useStore } from '../store.ts';
-import { commit, live } from '../actions.ts';
+import { fail, setUi, toast, useDerived, useDoc, useStore } from '../store.ts';
+import { commit, edit, live } from '../actions.ts';
 import { updateGraphic, updateZoom } from '../../shared/ops.ts';
-import { formatTime } from '../../shared/timeline.ts';
+import { clipGeometry, formatTime, framingAt, segAt, sourceAt } from '../../shared/timeline.ts';
+import { api } from '../api.ts';
 import { Icon } from '../icons.tsx';
 import { IconButton, Menu, MenuItem } from '../ui.tsx';
 
@@ -20,6 +21,12 @@ export function Preview() {
   const selection = useStore((s) => s.selection);
   const safeZones = useStore((s) => s.ui.safeZones);
   const media = useStore((s) => s.media);
+  const projectId = useStore((s) => s.projectId)!;
+  const pickBox = useStore((s) => s.pickBox);
+  const faces = useStore((s) => s.faces);
+  const stability = useStore((s) => s.stability);
+  const [box, setBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [tracking, setTracking] = useState(false);
   const [stageRef, size] = useElementSize<HTMLDivElement>();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -52,9 +59,73 @@ export function Preview() {
   const zoom = selection?.kind === 'zoom' ? doc.zooms.find((z) => z.id === selection.id) : undefined;
   const handle = graphic && graphic.template !== 'progress' ? { x: graphic.x, y: graphic.y } : zoom ? { x: zoom.focusX, y: zoom.focusY } : null;
 
+  /** A box drawn on the picture (fractions of the frame) to the same box in the main clip's source, with the clip and the moment. */
+  const toSource = (b: { x: number; y: number; w: number; h: number }) => {
+    const seg = segAt(derived.layout, player.time);
+    if (!seg || seg.clip.kind !== 'media') return null;
+    const m = media[seg.clip.mediaId];
+    if (!m || m.kind !== 'video') return null;
+    const clip = seg.clip;
+    const sourceTime = sourceAt(clip, player.time - seg.start);
+    const framing = framingAt(clip.framing, faces[m.id], sourceTime, clip.motion, player.time - seg.start);
+    const strength = clip.fx?.stabilize ?? 0;
+    const track = stability[m.id];
+    const g = clipGeometry(m.width, m.height, W, H, framing, strength > 0 && track ? { track, t: sourceTime, strength } : undefined);
+    const k = g.src.w / g.dst.w;
+    const sx = (b.x * W - g.dst.x) * k + g.src.x;
+    const sy = (b.y * H - g.dst.y) * k + g.src.y;
+    return { media: m, sourceTime, cx: (sx + (b.w * W * k) / 2) / m.width, cy: (sy + (b.h * H * k) / 2) / m.height, w: (b.w * W * k) / m.width, h: (b.h * H * k) / m.height };
+  };
+
+  const trackBox = async (b: { x: number; y: number; w: number; h: number }) => {
+    if (!pickBox) return;
+    const src = toSource(b);
+    if (!src) {
+      toast('Put the playhead on a video clip first.');
+      return;
+    }
+    setTracking(true);
+    try {
+      const tr = await api.track(projectId, src.media.id, { t: src.sourceTime, cx: src.cx, cy: src.cy, w: src.w, h: src.h });
+      edit((d) => updateGraphic(d, pickBox.graphicId, { follow: { target: 'object', trackId: tr.id, anchor: 'above', offsetX: 0, offsetY: -0.03 } }), 'Follow object');
+      toast(`Following "${tr.name}" for ${Math.round(tr.boxes.length * tr.interval)} s.`, 'success');
+    } catch (err) {
+      fail(err);
+    } finally {
+      setTracking(false);
+      setBox(null);
+      useStore.setState({ pickBox: null });
+    }
+  };
+
   // Drag on the picture to move the selected graphic, or the point a punch-in closes in on.
   const onPointerDown = (e: RPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    if (pickBox) {
+      // Draw the box of the thing to follow.
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x0 = (e.clientX - rect.left) / cssW;
+      const y0 = (e.clientY - rect.top) / cssH;
+      let last = { x: x0, y: y0, w: 0, h: 0 };
+      const onMove = (ev: PointerEvent) => {
+        const x1 = Math.min(1, Math.max(0, (ev.clientX - rect.left) / cssW));
+        const y1 = Math.min(1, Math.max(0, (ev.clientY - rect.top) / cssH));
+        last = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+        setBox(last);
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        if (last.w > 0.02 && last.h > 0.02) void trackBox(last);
+        else {
+          setBox(null);
+          toast('Drag a box around the thing to follow.');
+        }
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      return;
+    }
     const start = { x: e.clientX, y: e.clientY };
     const target = graphic ? { kind: 'graphic' as const, id: graphic.id, x: graphic.x, y: graphic.y } : zoom ? { kind: 'zoom' as const, id: zoom.id, x: zoom.focusX, y: zoom.focusY } : null;
     let moved = false;
@@ -82,6 +153,16 @@ export function Preview() {
     window.addEventListener('pointerup', onUp);
   };
 
+  // Esc leaves the box-drawing mode.
+  useEffect(() => {
+    if (!pickBox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') useStore.setState({ pickBox: null });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pickBox]);
+
   // Pinch or Cmd+wheel over the picture zooms it.
   useEffect(() => {
     const el = stageRef.current;
@@ -101,7 +182,7 @@ export function Preview() {
   return (
     <section className="stage" ref={wrapRef}>
       <div className={`stage-canvas ${magnify > 1.001 ? 'zoomed' : ''}`} ref={stageRef}>
-        <div className="canvas-frame" style={{ width: cssW, height: cssH }} onPointerDown={onPointerDown}>
+        <div className={`canvas-frame ${pickBox ? 'picking' : ''}`} style={{ width: cssW, height: cssH }} onPointerDown={onPointerDown}>
           <canvas ref={canvasRef} style={{ width: cssW, height: cssH }} />
           {safeZones && (
             <div className="safezones" aria-hidden="true">
@@ -116,7 +197,10 @@ export function Preview() {
               )}
             </div>
           )}
-          {handle && <div className="drag-handle" style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%` }} />}
+          {handle && !pickBox && <div className="drag-handle" style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%` }} />}
+          {pickBox && !box && !tracking && <div className="stage-chip">Drag a box around the thing to follow (Esc cancels)</div>}
+          {tracking && <div className="stage-chip">Following it through the footage…</div>}
+          {box && <div className="pick-box" style={{ left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%` }} />}
           {derived.duration === 0 && (
             <div className="stage-empty">
               <Icon name="media" size={24} />

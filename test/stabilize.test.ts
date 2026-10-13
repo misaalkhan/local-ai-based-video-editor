@@ -64,3 +64,28 @@ test('clipGeometry zooms by the margin and moves the crop with the content', () 
   // Off means plain geometry.
   assert.deepEqual(clipGeometry(1280, 720, 1080, 1920, undefined, { track, t: 0, strength: 0 }), plain);
 });
+
+test('object tracks sample every frame, hold through short losses, and place a follower in the output frame', async () => {
+  const { buildObjectTrack } = await import('../server/objects.ts');
+  const { followPlacement, objectAt } = await import('../shared/timeline.ts');
+  const rows = [
+    { t: 2, box: [0.5, 0.4, 0.2, 0.3, 1] },
+    { t: 2 + 1 / 30, box: [0.52, 0.4, 0.2, 0.3, 0.9] },
+    { t: 2 + 2 / 30, box: [0.54, 0.4, 0.2, 0.3, 0.1] },
+    { t: 2 + 4 / 30, box: [0.58, 0.4, 0.2, 0.3, 0.9] },
+  ];
+  const track = buildObjectTrack(rows, 30, 't1', 'Cup');
+  assert.equal(track.boxes.length, 5);
+  near(track.start, 2);
+  assert.equal(track.boxes[2], null);
+  assert.equal(track.boxes[3], null);
+  near(objectAt(track, 2 + 0.5 / 30)!.x, 0.51);
+  // Lost frames hold the last box; before the track there is nothing.
+  near(objectAt(track, 2 + 2.2 / 30)!.x, 0.52);
+  assert.equal(objectAt(track, 1), null);
+  // A 1280x720 source filling a 1080x1920 frame (cover): the shown strip is 405 source px wide, centred.
+  const g = layerGeometry(1280, 720, 1080, 1920);
+  const at = followPlacement({ target: 'object', anchor: 'above', offsetX: 0, offsetY: -0.03 }, { x: 0.5, y: 0.4, w: 0.2, h: 0.3 }, 1280, 720, g, 1080, 1920);
+  near(at.x, 0.5);
+  near(at.y, 0.25 - 0.03);
+});

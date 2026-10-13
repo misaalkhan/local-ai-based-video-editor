@@ -33,5 +33,6 @@ bash scripts/music.sh
 node scripts/sounds.ts
 mkdir -p bin && swiftc -O server/native/facetrack.swift -o bin/facetrack 2>/dev/null || echo "Face tracking helper not built (needs Xcode command line tools)."
 swiftc -O server/native/stabilize.swift -o bin/stabilize 2>/dev/null || echo "Stabilising helper not built (needs Xcode command line tools)."
+swiftc -O server/native/objtrack.swift -o bin/objtrack 2>/dev/null || echo "Object tracking helper not built (needs Xcode command line tools)."
 npx vite build
 echo "Done. Start with: npm start"

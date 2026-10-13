@@ -472,7 +472,7 @@ export function describeTimeline(p: Project): string {
     lines.push('', `${title}:`);
     for (const x of [...items].sort((a, b) => a.start - b.start)) lines.push(`  ${fmt(x)}`);
   };
-  timed('GRAPHICS', doc.graphics, (g) => `${g.id}  ${sec(g.start)}-${sec(g.start + g.duration)}  ${graphicSummary(g)}  at x=${g.x.toFixed(2)} y=${g.y.toFixed(2)}${g.name ? `  name "${g.name}"` : ''}`);
+  timed('GRAPHICS', doc.graphics, (g) => `${g.id}  ${sec(g.start)}-${sec(g.start + g.duration)}  ${graphicSummary(g)}  ${g.follow ? `follows the ${g.follow.target}${g.follow.trackId ? ` (track ${g.follow.trackId})` : ''}, ${g.follow.anchor}` : `at x=${g.x.toFixed(2)} y=${g.y.toFixed(2)}`}${g.name ? `  name "${g.name}"` : ''}`);
   timed('B-ROLL', doc.overlays, (o) => `${o.id}  ${sec(o.start)}-${sec(o.start + srcDuration(o))}  file ${tagOf(o.mediaId)} source ${sec(o.in)}-${sec(o.out)}${o.muted ? '' : '  (sound on)'}${o.transform ? '  picture-in-picture' : ''}${o.name ? `  name "${o.name}"` : ''}`);
   timed('PUNCH-INS', doc.zooms, (z) => `${z.id}  ${sec(z.start)}-${sec(z.start + z.duration)}  ${z.scale.toFixed(2)}x${z.toScale ? ` to ${z.toScale.toFixed(2)}x` : ''} ${z.ease}  focus x=${z.focusX.toFixed(2)} y=${z.focusY.toFixed(2)}`);
   timed('AUDIO', doc.audio, (a) => `${a.id}  ${sec(a.start)}-${sec(a.start + srcDuration(a))}  ${a.role} file ${tagOf(a.mediaId)} "${a.name ?? p.media.get(a.mediaId)?.name ?? ''}"  ${gainToDb(a.volume).toFixed(0)} dB${a.role === 'music' ? (a.duck === false ? ', no ducking' : ', ducks under speech') : ''}${a.muted ? ', muted' : ''}`);

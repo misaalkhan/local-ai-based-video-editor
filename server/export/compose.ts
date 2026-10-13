@@ -15,7 +15,7 @@ import type { Canvas, Image } from '@napi-rs/canvas';
 import { FFMPEG, FONTS_DIR } from '../config.ts';
 import { decodeSpec, proxyFile } from '../media.ts';
 import type { Project } from '../store.ts';
-import { getFaces, getStability, getWords } from '../store.ts';
+import { getFaces, getObjectTracks, getStability, getWords } from '../store.ts';
 import type { ID, MediaAsset, ProjectDoc, SourceClip } from '../../shared/types.ts';
 import { FONT_FILES } from '../../shared/fonts.ts';
 import { renderFrame } from '../../shared/draw.ts';
@@ -572,6 +572,7 @@ export class Compositor {
       },
       face: (id) => getFaces(this.p, id),
       stability: (id) => getStability(this.p, id),
+      objects: (id) => getObjectTracks(this.p, id),
       image: (id) => {
         const img = this.images.get(id);
         return img ? { image: img, width: img.width, height: img.height } : undefined;

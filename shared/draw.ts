@@ -3,13 +3,13 @@
 // (video frames, stills) through a FrameProvider. That is why an export looks
 // like what was on screen.
 
-import type { CaptionSettings, CaptionStyle, ChromaKey, ClipFx, FaceTrack, ID, MainClip, MotionTrack, OverlayClip, ProjectDoc, Transform } from './types.ts';
+import type { CaptionSettings, CaptionStyle, ChromaKey, ClipFx, FaceTrack, GraphicItem, ID, MainClip, MotionTrack, ObjectTrack, OverlayClip, ProjectDoc, Transform } from './types.ts';
 import type { CaptionCard } from './captions.ts';
 import { cardAt, displayWord } from './captions.ts';
 import { applyBaked, bakeGrade, needsGrade } from './color.ts';
 import type { Lut3D } from './color.ts';
 import type { MainSeg, Rect, Scene, VisualRef } from './timeline.ts';
-import { clamp, clipGeometry, framingAt, layerGeometry, sceneAt, sourceAt, srcDuration } from './timeline.ts';
+import { clamp, clipGeometry, faceAt, followPlacement, framingAt, layerGeometry, objectAt, sceneAt, sourceAt, srcDuration } from './timeline.ts';
 import { fontString } from './fonts.ts';
 import type { Ctx2D, DrawableImage } from './graphics.ts';
 import { clearShadow, drawGraphic, easeInOut, easeOutBack, easeOutCubic, isRTL, refSize, roundRect, setShadow } from './graphics.ts';
@@ -33,6 +33,8 @@ export interface FrameProvider {
   face?(mediaId: ID): FaceTrack | undefined;
   /** The measured camera path of a video, for stabilising; undefined until analysed. */
   stability?(mediaId: ID): MotionTrack | undefined;
+  /** Objects tracked through a video, for graphics that follow them. */
+  objects?(mediaId: ID): ObjectTrack[] | undefined;
   /** A still image, for image graphics. */
   image?(mediaId: ID): DrawableImage | undefined;
   /** A small offscreen canvas for effects, reused between frames. */
@@ -141,6 +143,32 @@ function gradeInto(env: Env, fx: ClipFx, img: LayerImage, s: Rect, dst: Rect, fi
   applyBaked(id.data, bakeGrade(fx, lut ?? null));
   c.putImageData(id, 0, 0);
   return { canvas: sc.canvas, w, h };
+}
+
+/**
+ * A graphic that follows something in the main clip under it: its position
+ * becomes the followed box's place in the frame (plus its offset), and any
+ * position keyframes give way. When nothing is being followed right now it
+ * stays where it was put.
+ */
+function followed(env: Env, scene: Scene, g: GraphicItem): GraphicItem {
+  const ref = scene.main;
+  const f = g.follow!;
+  if (!ref) return g;
+  const { W, H, o } = env;
+  const size = o.provider.mediaSize(ref.clip.mediaId);
+  if (!size || !size.width || !size.height) return g;
+  let box: { x: number; y: number; w: number; h: number } | null = null;
+  if (f.target === 'face') box = faceAt(o.provider.face?.(ref.clip.mediaId), ref.sourceTime);
+  else {
+    const track = o.provider.objects?.(ref.clip.mediaId)?.find((tr) => tr.id === f.trackId);
+    if (track) box = objectAt(track, ref.sourceTime);
+  }
+  if (!box) return g;
+  const framing = framingAt(ref.clip.framing, o.provider.face?.(ref.clip.mediaId), ref.sourceTime, ref.clip.motion, env.t - ref.clipStart);
+  const geom = clipGeometry(size.width, size.height, W, H, framing, stabOf(env, ref));
+  const { x, y } = followPlacement(f, box, size.width, size.height, geom, W, H);
+  return { ...g, x, y, keyframes: g.keyframes?.map((k) => ({ ...k, x: undefined, y: undefined })) };
 }
 
 /** What a clip's stabilising needs at this moment, when it is on and the camera path is known. */
@@ -590,7 +618,7 @@ export function renderFrame(ctx: Ctx2D, doc: ProjectDoc, layout: MainSeg[], t: n
 
   if (!o.bare) {
     const genv = { W, H, pixelScale: o.pixelScale, getImage: o.provider.image ? (id: string) => o.provider.image!(id) : undefined, settled: o.settled };
-    for (const g of scene.graphics) drawGraphic(ctx, g, t, genv);
+    for (const g of scene.graphics) drawGraphic(ctx, g.follow ? followed(env, scene, g) : g, t, genv);
     if (doc.captions.enabled && o.cards) {
       const card = cardAt(o.cards, t);
       if (card) drawCaption(ctx, card, t, doc.captions, W, H, o.pixelScale);

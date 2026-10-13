@@ -11,6 +11,9 @@ import * as ops from '../../shared/ops.ts';
 import { DEFAULT_FRAMING, clamp, contentDuration, layoutMain, snap, sourceAt, srcDuration } from '../../shared/timeline.ts';
 import { extractStill } from '../stills.ts';
 import { analyzeStability } from '../stabilize.ts';
+import { trackObject } from '../objects.ts';
+import { getObjectTracks } from '../store.ts';
+import { clipGeometry, framingAt, segAt, sourceAt as sourceTimeAt } from '../../shared/timeline.ts';
 import { detectSilences } from '../../shared/silence.ts';
 import { FONT_FAMILIES, FONT_NOTES, nearestWeight } from '../../shared/fonts.ts';
 import { GRAPHIC_PRESETS, GRAPHIC_TEMPLATES } from '../../shared/graphics.ts';
@@ -1107,6 +1110,71 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       const d = ops.updateClip(ctx.p.doc, it.kind, it.id, { fx: { ...(clip.fx ?? {}), stabilize: strength || undefined } }, media.duration);
       save(ctx, d, 'stabilize_clip', `${strength ? `Stabilised ${Math.round(strength * 100)}%` : 'Stabilising off'} on ${it.id}`);
       return { text: strength ? `Stabilised ${it.kind} clip ${it.id} at ${Math.round(strength * 100)}% (cropped ${Math.round((3 + 9 * strength) * 2)}%).` : `Stabilising is off on ${it.id}.` };
+    },
+  },
+  {
+    name: 'track_object',
+    description: 'Follow a thing through the main clip under a moment (a product, a hand, a dog, a sign) so text can stick to it: give the box around it as you see it in a still of the frame (fractions of the frame: centre x, y and width, height). Tracking runs from that moment to the end of the clip or until it is lost. Returns a track id for follow_target. For faces use follow_target target face instead; faces are found already.',
+    schema: obj({ at: N('Timeline seconds of the still you looked at.'), x: N('Centre of the box, 0-1 across the frame.'), y: N('Centre of the box, 0-1 down the frame.'), w: N('Width of the box, 0-1.'), h: N('Height of the box, 0-1.'), name: S('What it is, for the list.'), max_seconds: N('Stop after this many seconds (default: the clip).') }, ['at', 'x', 'y', 'w', 'h']),
+    label: (a) => `Tracking ${str(a.name) || 'an object'}`,
+    run: async (ctx, a) => {
+      const v = view(ctx.p);
+      const at = num(a.at, 'at');
+      const seg = segAt(layoutMain(v.doc), at);
+      if (!seg || seg.clip.kind !== 'media') bad(`There is no main clip at ${sec(at)}s.`);
+      const media = ctx.p.media.get(seg.clip.mediaId);
+      if (!media || media.kind !== 'video') bad('Only video can be tracked.');
+      const { width: W, height: H } = v.doc.settings;
+      const clip = seg.clip;
+      const sourceTime = sourceTimeAt(clip, at - seg.start);
+      const framing = framingAt(clip.framing, getFaces(ctx.p, media.id), sourceTime, clip.motion, at - seg.start);
+      const strength = clip.fx?.stabilize ?? 0;
+      const stab = strength > 0 ? await analyzeStability(ctx.p, media.id) : null;
+      const g = clipGeometry(media.width, media.height, W, H, framing, stab ? { track: stab, t: sourceTime, strength } : undefined);
+      const k = g.src.w / g.dst.w;
+      const bx = clamp(num(a.x, 'x'), 0, 1);
+      const by = clamp(num(a.y, 'y'), 0, 1);
+      const bw = clamp(num(a.w, 'w'), 0.01, 1);
+      const bh = clamp(num(a.h, 'h'), 0.01, 1);
+      const box = {
+        cx: ((bx * W - g.dst.x) * k + g.src.x) / media.width,
+        cy: ((by * H - g.dst.y) * k + g.src.y) / media.height,
+        w: (bw * W * k) / media.width,
+        h: (bh * H * k) / media.height,
+      };
+      const maxSeconds = optNum(a.max_seconds, 'max_seconds') ?? Math.max(0.5, clip.out - sourceTime);
+      const track = await trackObject(ctx.p, media.id, { t: sourceTime, ...box, name: a.name !== undefined ? str(a.name) : undefined, maxSeconds });
+      const seen = track.boxes.filter(Boolean).length;
+      return { text: `Tracked "${track.name}" (track ${track.id}) in file ${media.name} from ${sec(at)}s for ${sec(track.boxes.length * track.interval)}s; seen in ${Math.round((100 * seen) / Math.max(1, track.boxes.length))}% of those frames. Use follow_target with track_id ${track.id}.` };
+    },
+  },
+  {
+    name: 'follow_target',
+    description: 'Make a text or graphic move with the subject\'s face or a tracked object in the main clip under it (a name label that stays by the person, an arrow on a product, a price on a dish, a "me" tag in a crowd). anchor above (default: hangs over the head or object), centre (on it) or below; offset_x/offset_y nudge it in fractions of the frame (offset_y -0.05 is a little higher). target none stops following. While following, position keyframes are ignored.',
+    schema: obj({ item_id: S('A text or graphic id.'), target: S('What to follow.', ['face', 'object', 'none']), track_id: S('From track_object (needed for object).'), anchor: S('Where it hangs.', ['above', 'centre', 'below']), offset_x: N('-0.5..0.5, default 0.'), offset_y: N('-0.5..0.5, default -0.03 above / 0.03 below.') }, ['item_id', 'target']),
+    label: (a) => (a.target === 'none' ? 'Stop following' : `Following the ${str(a.target)}`),
+    run: (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.item_id);
+      if (it.kind !== 'graphic') bad('Only text and graphics can follow something.');
+      const target = str(a.target);
+      if (target === 'none') {
+        const d = ops.updateGraphic(v.doc, it.id, { follow: undefined });
+        save(ctx, d, 'follow_target', `${it.id} stays put`);
+        return { text: `${it.id} no longer follows anything.` };
+      }
+      if (target !== 'face' && target !== 'object') bad('target must be face, object or none.');
+      let trackId: string | undefined;
+      if (target === 'object') {
+        trackId = str(a.track_id);
+        const known = [...ctx.p.media.values()].some((m) => (getObjectTracks(ctx.p, m.id) ?? []).some((t) => t.id === trackId));
+        if (!trackId || !known) bad('Give the track_id from track_object.');
+      }
+      const anchor = (['above', 'centre', 'below'].includes(str(a.anchor)) ? str(a.anchor) : 'above') as 'above' | 'centre' | 'below';
+      const follow = { target: target as 'face' | 'object', trackId, anchor, offsetX: clamp(optNum(a.offset_x, 'offset_x') ?? 0, -0.5, 0.5), offsetY: clamp(optNum(a.offset_y, 'offset_y') ?? (anchor === 'below' ? 0.03 : anchor === 'above' ? -0.03 : 0), -0.5, 0.5) };
+      const d = ops.updateGraphic(v.doc, it.id, { follow });
+      save(ctx, d, 'follow_target', `${it.id} follows the ${target}`);
+      return { text: `${it.id} now follows the ${target}${trackId ? ` (track ${trackId})` : ''}, hanging ${anchor} it.` };
     },
   },
   {

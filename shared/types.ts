@@ -265,6 +265,31 @@ export interface GraphicItem extends ItemMeta, Transform {
   animIn: AnimKind;
   animOut: AnimKind;
   keyframes?: Keyframe[];
+  /** The graphic moves with something in the footage under it. */
+  follow?: Follow;
+}
+
+/** What a graphic follows: the subject's face, or an object tracked from a box the user drew. */
+export interface Follow {
+  target: 'face' | 'object';
+  /** The object track's id (kept with the media) when target is object. */
+  trackId?: ID;
+  /** Where on the followed box the graphic hangs. */
+  anchor: 'centre' | 'above' | 'below';
+  /** Extra offset from that anchor, in fractions of the frame. */
+  offsetX: number;
+  offsetY: number;
+}
+
+/** Something followed through a video from a box the user drew, kept with the media. */
+export interface ObjectTrack {
+  id: ID;
+  name: string;
+  interval: number;
+  /** Source seconds of the first box. */
+  start: number;
+  /** One entry per sample from `start`: [centreX, centreY, width, height] in 0..1 of the frame, or null when lost. */
+  boxes: ([number, number, number, number] | null)[];
 }
 
 /** A punch-in on the main track. */
@@ -385,6 +410,8 @@ export interface MediaAsset {
   faces?: JobState;
   /** Camera motion analysis for stabilising, run on demand. */
   stability?: JobState;
+  /** Objects tracked in this file (the boxes live in tracks.json). */
+  tracks?: { id: ID; name: string; start: number; end: number }[];
   /** Progress of whichever step is running, 0..1. */
   progress?: number;
   stage?: string;

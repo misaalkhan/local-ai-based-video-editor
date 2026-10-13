@@ -18,6 +18,7 @@ import type {
   ChatMessage,
   FaceTrack,
   MotionTrack,
+  ObjectTrack,
   HistoryEntry,
   ID,
   MediaAsset,
@@ -404,6 +405,23 @@ export function getStability(p: Project, mediaId: ID): MotionTrack | undefined {
 export function setStability(p: Project, mediaId: ID, track: MotionTrack): void {
   writeJson(path.join(mediaDir(p, mediaId), 'stability.json'), track);
   stability.set(`${p.id}/${mediaId}`, track);
+}
+
+const objects = new Map<string, ObjectTrack[] | null>();
+
+/** Objects tracked through a video, for graphics that follow them. */
+export function getObjectTracks(p: Project, mediaId: ID): ObjectTrack[] | undefined {
+  const key = `${p.id}/${mediaId}`;
+  if (!objects.has(key)) {
+    const file = path.join(mediaDir(p, mediaId), 'tracks.json');
+    objects.set(key, fs.existsSync(file) ? readJson<ObjectTrack[] | null>(file, null) : null);
+  }
+  return objects.get(key) ?? undefined;
+}
+
+export function setObjectTracks(p: Project, mediaId: ID, tracks: ObjectTrack[]): void {
+  writeJson(path.join(mediaDir(p, mediaId), 'tracks.json'), tracks);
+  objects.set(`${p.id}/${mediaId}`, tracks);
 }
 
 export function forgetDerived(p: Project, mediaId: ID): void {

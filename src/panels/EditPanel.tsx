@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 
-import type { AnimKind, AudioClip, BlendMode, ChromaKey, Ease, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, SpeedKeyframe, ZoomItem } from '../../shared/types.ts';
+import type { AnimKind, AudioClip, BlendMode, ChromaKey, Ease, Follow, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, SpeedKeyframe, ZoomItem } from '../../shared/types.ts';
 import { api, mediaUrl } from '../api.ts';
 import { player } from '../engine/player.ts';
 import { usePlayerTime } from '../hooks.ts';
-import { clamp, framingAt, localAt, sourceAt, speedAt } from '../../shared/timeline.ts';
+import { clamp, framingAt, localAt, segAt, sourceAt, speedAt } from '../../shared/timeline.ts';
 import { transformAt } from '../../shared/graphics.ts';
 import * as ops from '../../shared/ops.ts';
 import { FONT_FAMILIES, FONT_NOTES, nearestWeight, weightsOf } from '../../shared/fonts.ts';
@@ -14,7 +14,7 @@ import { defaultColor } from '../../shared/graphics.ts';
 import { formatTime, srcDuration } from '../../shared/timeline.ts';
 import { Icon } from '../icons.tsx';
 import { fail, setUi, toast, useDerived, useDoc, useStore } from '../store.ts';
-import { commit, deleteSelection, duplicateSelection, edit, live, mediaDur } from '../actions.ts';
+import { commit, deleteSelection, duplicateSelection, edit, live, mediaDur, runTool } from '../actions.ts';
 import { Button, ColorInput, Empty, Field, Section, Segmented, Select, Slider, TextInput, Toggle } from '../ui.tsx';
 
 type FieldType = 'text' | 'multiline' | 'color' | 'optcolor' | 'slider' | 'toggle' | 'select' | 'font' | 'list' | 'number';
@@ -433,6 +433,90 @@ function LayerStyle({ o, m, set, now, done }: { o: OverlayClip; m: MediaAsset | 
   );
 }
 
+const ANCHORS = [
+  { value: 'above', label: 'Above it' },
+  { value: 'centre', label: 'On it' },
+  { value: 'below', label: 'Below it' },
+];
+
+/** A graphic that moves with the subject's face or a tracked object in the footage under it. */
+function FollowEditor({ g }: { g: GraphicItem }) {
+  const derived = useDerived();
+  const media = useStore((s) => s.media);
+  const projectId = useStore((s) => s.projectId)!;
+  const pickBox = useStore((s) => s.pickBox);
+  const time = usePlayerTime();
+  const seg = derived ? segAt(derived.layout, time) : undefined;
+  const m = seg && seg.clip.kind === 'media' ? media[seg.clip.mediaId] : undefined;
+  const video = m?.kind === 'video' ? m : undefined;
+  const f = g.follow;
+  const set = (follow: Follow | undefined, label: string) => edit((d) => ops.updateGraphic(d, g.id, { follow }), label);
+  const setPart = (patch: Partial<Follow>) => live((d) => ops.updateGraphic(d, g.id, { follow: { ...(f ?? { target: 'face', anchor: 'above', offsetX: 0, offsetY: -0.03 }), ...patch } }));
+  const mode = !f ? 'none' : f.target;
+  const tracks = video?.tracks ?? [];
+  if (g.template === 'progress') return null;
+  return (
+    <Section title="Follow">
+      <Segmented
+        value={mode}
+        options={[{ value: 'none', label: 'Stays put' }, { value: 'face', label: 'The face' }, { value: 'object', label: 'An object' }]}
+        onChange={(v) => {
+          if (v === 'none') set(undefined, 'Stop following');
+          else if (v === 'face') {
+            set({ target: 'face', anchor: 'above', offsetX: 0, offsetY: -0.03 }, 'Follow the face');
+            if (video && video.faces !== 'done') void runTool('set_reframe', { clip_id: seg!.clip.id, mode: 'track' });
+          } else {
+            if (tracks.length) set({ target: 'object', trackId: tracks[0].id, anchor: 'above', offsetX: 0, offsetY: -0.03 }, 'Follow an object');
+            else useStore.setState({ pickBox: { graphicId: g.id } });
+          }
+        }}
+      />
+      {mode === 'face' && video && video.faces !== 'done' && <div className="hint">Finding the face in this clip…</div>}
+      {mode === 'object' && f && (
+        <>
+          {tracks.length > 0 && (
+            <Field label="Tracked object">
+              <Select value={f.trackId ?? ''} options={tracks.map((t) => ({ value: t.id, label: `${t.name} (${t.start.toFixed(1)}–${t.end.toFixed(1)} s)` }))} onChange={(v) => set({ ...f, trackId: v }, 'Follow another object')} />
+            </Field>
+          )}
+          <div className="row">
+            <Button size="sm" icon="target" onClick={() => useStore.setState({ pickBox: { graphicId: g.id } })} disabled={!!pickBox || !video}>
+              {pickBox ? 'Drag a box on the picture…' : 'Track something new'}
+            </Button>
+            {pickBox && (
+              <Button size="sm" variant="ghost" onClick={() => useStore.setState({ pickBox: null })}>
+                Cancel
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+      {mode === 'object' && !f && pickBox && (
+        <div className="row">
+          <span className="hint">Drag a box around the thing to follow on the picture.</span>
+          <Button size="sm" variant="ghost" onClick={() => useStore.setState({ pickBox: null })}>
+            Cancel
+          </Button>
+        </div>
+      )}
+      {f && (
+        <>
+          <Field label="Hangs">
+            <Segmented value={f.anchor} options={ANCHORS} onChange={(v) => set({ ...f, anchor: v as Follow['anchor'] }, 'Follow anchor')} />
+          </Field>
+          <Field label="Nudge left ↔ right">
+            <Slider value={f.offsetX} min={-0.5} max={0.5} step={0.005} onChange={(v) => setPart({ offsetX: v })} onCommit={() => commit('Follow offset')} format={(v) => `${Math.round(v * 100)}%`} />
+          </Field>
+          <Field label="Nudge up ↔ down">
+            <Slider value={f.offsetY} min={-0.5} max={0.5} step={0.005} onChange={(v) => setPart({ offsetY: v })} onCommit={() => commit('Follow offset')} format={(v) => `${Math.round(v * 100)}%`} />
+          </Field>
+          <div className="hint">The graphic goes wherever the face or the object is in the main clip under it; position keyframes are ignored while it follows. {!video && 'Put the playhead on a video clip to track a new object.'}</div>
+        </>
+      )}
+    </Section>
+  );
+}
+
 function GraphicEditor({ g }: { g: GraphicItem }) {
   const p = g.props as Record<string, unknown>;
   const setProp = (key: string, value: unknown) => live((d) => ops.updateGraphic(d, g.id, { props: { [key]: value } }));
@@ -533,6 +617,7 @@ function GraphicEditor({ g }: { g: GraphicItem }) {
           </Field>
         </Section>
       )}
+      <FollowEditor g={g} />
       <PlacementKeyframes kind="graphic" id={g.id} start={g.start} length={g.duration} keyframes={g.keyframes} base={{ x: g.x, y: g.y, scale: g.scale, rotation: g.rotation, opacity: g.opacity }} />
       <Section title="Timing">
         <Field label="On screen for">

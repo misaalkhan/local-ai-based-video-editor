@@ -8,7 +8,7 @@
 
 import { parseCube } from '../../shared/color.ts';
 import type { Lut3D } from '../../shared/color.ts';
-import type { FaceTrack, ID, MediaAsset, MotionTrack, ProjectDoc, SourceClip } from '../../shared/types.ts';
+import type { FaceTrack, ID, MediaAsset, MotionTrack, ObjectTrack, ProjectDoc, SourceClip } from '../../shared/types.ts';
 import { renderFrame } from '../../shared/draw.ts';
 import type { FrameProvider, LayerImage } from '../../shared/draw.ts';
 import type { Ctx2D, DrawableImage } from '../../shared/graphics.ts';
@@ -22,6 +22,7 @@ export interface PlayerData {
   media: Record<ID, MediaAsset>;
   faces: Record<ID, FaceTrack>;
   stability: Record<ID, MotionTrack>;
+  objects: Record<ID, ObjectTrack[]>;
   derived: Derived;
 }
 
@@ -497,6 +498,7 @@ export class Player {
       },
       face: (id) => d.faces[id],
       stability: (id) => d.stability[id],
+      objects: (id) => d.objects[id],
       image: (id): DrawableImage | undefined => {
         const img = this.imageFor(id);
         return img ? { image: img, width: img.naturalWidth, height: img.naturalHeight } : undefined;

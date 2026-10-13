@@ -21,6 +21,7 @@ import {
   trashProject,
 } from './store.ts';
 import { analyzeStability } from './stabilize.ts';
+import { removeObjectTrack, trackObject } from './objects.ts';
 import { importMedia, proxyFile, removeMedia, resumePending, retranscribe } from './media.ts';
 import { MEDIA_EXT, extOf } from './probe.ts';
 import { addPlanItem, copyMedia, getRecipes, getSettings, getStudio, layOut, removePlanItem, removeRecipe, removeReference, saveProfile, saveSettings, updatePlanItem } from './studio.ts';
@@ -38,6 +39,7 @@ const MEDIA_FILES: Record<string, string> = {
   'transcript.json': 'transcript.json',
   'faces.json': 'faces.json',
   'stability.json': 'stability.json',
+  'tracks.json': 'tracks.json',
 };
 
 /** Media files in a folder, so a whole shoot can be added by pointing at it. */
@@ -303,6 +305,30 @@ export function registerRoutes(r: Router): void {
     if (!m) throw new HttpError(404, 'no such media');
     void analyzeStability(p, m.id);
     c.json({ ok: true, state: p.media.get(m.id)?.stability ?? 'pending' });
+  });
+
+  /** Follow a box through a video from a moment on; the track is kept with the media. */
+  r.post('/api/projects/:pid/media/:mid/track', async (c) => {
+    const p = getProject(c.params.pid);
+    const m = p.media.get(c.params.mid);
+    if (!m) throw new HttpError(404, 'no such media');
+    const b = await c.body<{ t?: number; cx?: number; cy?: number; w?: number; h?: number; name?: string; maxSeconds?: number }>();
+    const n = (v: unknown, name: string) => {
+      if (typeof v !== 'number' || !Number.isFinite(v)) throw new HttpError(400, `${name} must be a number`);
+      return v;
+    };
+    try {
+      c.json(await trackObject(p, m.id, { t: n(b.t, 't'), cx: n(b.cx, 'cx'), cy: n(b.cy, 'cy'), w: n(b.w, 'w'), h: n(b.h, 'h'), name: b.name, maxSeconds: b.maxSeconds }), 201);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+  });
+
+  r.delete('/api/projects/:pid/media/:mid/track/:tid', (c) => {
+    const p = getProject(c.params.pid);
+    if (!p.media.get(c.params.mid)) throw new HttpError(404, 'no such media');
+    removeObjectTrack(p, c.params.mid, c.params.tid);
+    c.json({ ok: true });
   });
 
   r.post('/api/projects/:pid/media/:mid/retranscribe', (c) => {

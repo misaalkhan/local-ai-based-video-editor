@@ -1454,6 +1454,9 @@ export function sanitizeDoc(doc: ProjectDoc, hasMedia?: (id: ID) => boolean): Pr
       opacity: num(g.opacity, 1),
       animIn: g.animIn ?? 'fade',
       animOut: g.animOut ?? 'fade',
+      ...(g.follow && (g.follow.target === 'face' || g.follow.target === 'object')
+        ? { follow: { target: g.follow.target, trackId: g.follow.trackId, anchor: ['centre', 'above', 'below'].includes(g.follow.anchor) ? g.follow.anchor : 'above', offsetX: clamp(num(g.follow.offsetX, 0), -1, 1), offsetY: clamp(num(g.follow.offsetY, 0), -1, 1) } }
+        : { follow: undefined }),
     }));
   d.zooms = (d.zooms ?? []).filter((z) => z.duration > 0 && z.scale > 0);
   d.captions = { ...DEFAULT_CAPTIONS, ...(d.captions ?? {}), edits: { ...(d.captions?.edits ?? {}) } };

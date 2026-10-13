@@ -1134,6 +1134,16 @@ input[type='range']::-webkit-slider-thumb {
   inset: 5%;
   border: 1px dashed rgba(255, 255, 255, 0.5);
 }
+.pick-box {
+  position: absolute;
+  border: 2px dashed #ffd166;
+  background: rgba(255, 209, 102, 0.12);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.canvas-frame.picking {
+  cursor: crosshair;
+}
 .drag-handle {
   position: absolute;
   width: 14px;

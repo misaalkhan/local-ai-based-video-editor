@@ -156,6 +156,7 @@ export function Editor({ projectId }: { projectId: string }) {
   const media = useStore((s) => s.media);
   const faces = useStore((s) => s.faces);
   const stability = useStore((s) => s.stability);
+  const objects = useStore((s) => s.objects);
   const ui = useStore((s) => s.ui);
   const hasSelection = useStore((s) => !!s.selection);
   const doc = useDoc();
@@ -170,8 +171,8 @@ export function Editor({ projectId }: { projectId: string }) {
   }, [projectId]);
 
   useEffect(() => {
-    if (doc && derived) player.setData({ projectId, doc, media, faces, stability, derived });
-  }, [projectId, doc, media, faces, stability, derived]);
+    if (doc && derived) player.setData({ projectId, doc, media, faces, stability, objects, derived });
+  }, [projectId, doc, media, faces, stability, objects, derived]);
 
   const editing = useStore((s) => (s.selection?.kind === 'graphic' ? s.selection.id : null));
   useEffect(() => player.setEditing(editing), [editing]);

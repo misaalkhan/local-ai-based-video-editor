@@ -18,6 +18,8 @@ import type {
   Ease,
   SpeedKeyframe,
   MotionTrack,
+  ObjectTrack,
+  Follow,
 } from './types.ts';
 
 export const EPS = 1e-6;
@@ -331,6 +333,42 @@ export function faceAt(track: FaceTrack | undefined, t: number): { x: number; y:
   }
   const one = a ?? b;
   return one ? { x: one[0], y: one[1], w: one[2], h: one[3] } : null;
+}
+
+/** The box of a tracked object at source time `t`; the last box seen within a second is held, else null. */
+export function objectAt(track: ObjectTrack, t: number): { x: number; y: number; w: number; h: number } | null {
+  if (!track.boxes.length) return null;
+  const pos = (t - track.start) / track.interval;
+  if (pos < -0.5) return null;
+  const i = Math.floor(clamp(pos, 0, track.boxes.length - 1));
+  const a = track.boxes[i];
+  const b = track.boxes[Math.min(track.boxes.length - 1, i + 1)];
+  if (a && b) {
+    const k = clamp(pos - i, 0, 1);
+    return { x: a[0] + (b[0] - a[0]) * k, y: a[1] + (b[1] - a[1]) * k, w: a[2] + (b[2] - a[2]) * k, h: a[3] + (b[3] - a[3]) * k };
+  }
+  for (let j = i; j >= 0 && j > i - 1 / track.interval; j--) {
+    const box = track.boxes[j];
+    if (box) return { x: box[0], y: box[1], w: box[2], h: box[3] };
+  }
+  return null;
+}
+
+/** Where a followed box puts a graphic, in fractions of the output frame, given the clip's geometry. */
+export function followPlacement(
+  follow: Follow,
+  box: { x: number; y: number; w: number; h: number },
+  mw: number,
+  mh: number,
+  g: { src: Rect; dst: Rect },
+  W: number,
+  H: number,
+): { x: number; y: number } {
+  const k = g.dst.w / g.src.w;
+  const ay = follow.anchor === 'above' ? box.y - box.h / 2 : follow.anchor === 'below' ? box.y + box.h / 2 : box.y;
+  const x = (g.dst.x + (box.x * mw - g.src.x) * k) / W + follow.offsetX;
+  const y = (g.dst.y + (ay * mh - g.src.y) * k) / H + follow.offsetY;
+  return { x, y };
 }
 
 /** The framing actually used at a moment: follows the face when tracking is on and a face is known. */
