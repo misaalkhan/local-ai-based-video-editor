@@ -9,7 +9,7 @@ import { cardAt, displayWord } from './captions.ts';
 import { applyBaked, bakeGrade, needsGrade } from './color.ts';
 import type { Lut3D } from './color.ts';
 import type { MainSeg, Rect, Scene, VisualRef } from './timeline.ts';
-import { clamp, framingAt, layerGeometry, sceneAt } from './timeline.ts';
+import { clamp, framingAt, layerGeometry, sceneAt, sourceAt, srcDuration } from './timeline.ts';
 import { fontString } from './fonts.ts';
 import type { Ctx2D, DrawableImage } from './graphics.ts';
 import { clearShadow, drawGraphic, easeInOut, easeOutBack, easeOutCubic, isRTL, refSize, roundRect, setShadow } from './graphics.ts';
@@ -263,7 +263,7 @@ function drawMainSeg(env: Env, seg: MainSeg, ref: VisualRef | undefined, img: La
 function lastFrameRef(seg: MainSeg, fps: number): VisualRef | undefined {
   const c: MainClip = seg.clip;
   if (c.kind !== 'media') return undefined;
-  return { clip: c, role: 'main', clipStart: seg.start, sourceTime: Math.max(c.in, c.out - c.speed / fps), opacity: 1 };
+  return { clip: c, role: 'main', clipStart: seg.start, sourceTime: sourceAt(c, Math.max(0, srcDuration(c) - 1 / fps)), opacity: 1 };
 }
 
 function drawMain(env: Env, scene: Scene, layout: MainSeg[], fps: number): void {

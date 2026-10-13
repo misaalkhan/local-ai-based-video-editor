@@ -26,11 +26,15 @@ import type { CaptionCard } from '../../shared/captions.ts';
 import {
   contentDuration,
   framingAt,
+  isRemapped,
   layerGeometry,
   layoutMain,
+  localAt,
   maxZoomIn,
   overlaysAt,
+  rampPoints,
   segAt,
+  sourceAt,
   srcDuration,
   toFrames,
 } from '../../shared/timeline.ts';
@@ -78,7 +82,7 @@ export function planLayer(
   let y1 = -Infinity;
   let density = 0;
   for (const t of times) {
-    const g = layerGeometry(media.width, media.height, W, H, framingAt(clip.framing, faces, t, clip.motion, (t - clip.in) / clip.speed));
+    const g = layerGeometry(media.width, media.height, W, H, framingAt(clip.framing, faces, t, clip.motion, localAt(clip, t)));
     x0 = Math.min(x0, g.src.x);
     y0 = Math.min(y0, g.src.y);
     x1 = Math.max(x1, g.src.x + g.src.w);
@@ -155,9 +159,9 @@ class Decoder {
   private proc: ChildProcess | null = null;
   private reader: FrameReader | null = null;
   private buf: Buffer;
-  private args: string[];
+  protected args: string[];
   private stderr = '';
-  private got = false;
+  protected got = false;
   label: string;
 
   constructor(plan: LayerPlan, args: string[], label: string) {
@@ -178,36 +182,168 @@ class Decoder {
     this.reader = new FrameReader(this.proc.stdout!, this.buf.length);
   }
 
-  /** Put the next frame on this decoder's canvas. Past the end of the source the last frame is held. */
-  async advance(): Promise<void> {
+  /** Read one frame onto the canvas; false once the process has nothing more. */
+  protected async read(): Promise<boolean> {
     this.start();
     const ok = await this.reader!.next(this.buf);
-    if (!ok) {
-      if (!this.got) throw new Error(`could not read video from ${this.label}: ${this.stderr.trim().split('\n').pop() ?? 'no frames'}`);
-      return;
-    }
+    if (!ok) return false;
     this.got = true;
     const data = new Uint8ClampedArray(this.buf.buffer, this.buf.byteOffset, this.buf.length);
     this.canvas.getContext('2d').putImageData(new ImageData(data, this.plan.outW, this.plan.outH), 0, 0);
+    return true;
+  }
+
+  protected failure(): Error {
+    return new Error(`could not read video from ${this.label}: ${this.stderr.trim().split('\n').pop() ?? 'no frames'}`);
+  }
+
+  /** Put the next frame on this decoder's canvas. Past the end of the source the last frame is held. */
+  async advance(): Promise<void> {
+    if (!(await this.read()) && !this.got) throw this.failure();
+  }
+
+  /** For plain decoders every output frame is the next frame; `s` is ignored. */
+  async advanceTo(_s: number): Promise<void> {
+    await this.advance();
   }
 
   stop(): void {
     this.proc?.kill('SIGKILL');
     this.proc = null;
+    this.reader = null;
+  }
+}
+
+/** The rate at which a remapped clip's source is read: its own, raised for slowed stretches that are interpolated. */
+export function readRate(media: MediaAsset, clip: SourceClip, fps: number): number {
+  const native = media.fps > 1 ? media.fps : fps;
+  if (!clip.interpolate) return Math.min(240, Math.max(fps, native));
+  const pts = rampPoints(clip);
+  const slowest = pts.length ? Math.min(...pts.map((k) => k.speed)) : clip.speed || 1;
+  return Math.min(240, Math.max(native, Math.ceil(fps / Math.max(0.05, slowest))));
+}
+
+/** The ffmpeg filter that makes up frames between the source's own. */
+export function interpolation(mode: SourceClip['interpolate'], fps: number): string {
+  return mode === 'flow' ? `minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1` : `minterpolate=fps=${fps}:mi_mode=blend`;
+}
+
+/** Decoding arguments for one stretch of a remapped clip's source, read at `rate`, optionally backwards. */
+export function remapArgs(
+  media: MediaAsset,
+  o: { inT: number; frames: number; rate: number; plan: LayerPlan; reverse: boolean; interpolate?: SourceClip['interpolate']; file?: string; useProxy?: boolean },
+): string[] {
+  const spec = o.useProxy ? { input: [] as string[], prefix: '' } : decodeSpec(media);
+  const r = o.plan.region;
+  const vf = [
+    `${spec.prefix}crop=${r.w}:${r.h}:${r.x}:${r.y}`,
+    `scale=${o.plan.outW}:${o.plan.outH}:flags=bicubic`,
+    o.interpolate ? interpolation(o.interpolate, o.rate) : `fps=${o.rate}:start_time=0`,
+    o.reverse ? 'reverse' : '',
+    'format=rgba',
+  ]
+    .filter(Boolean)
+    .join(',');
+  return [
+    '-v', 'error', '-nostdin', ...spec.input, '-ss', o.inT.toFixed(6), '-t', ((o.frames + 0.5) / o.rate).toFixed(6), '-i', o.file ?? media.path,
+    '-an', '-sn', '-dn', '-vf', vf, '-fps_mode', 'passthrough', '-frames:v', String(o.frames),
+    '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1',
+  ];
+}
+
+/**
+ * Frames of a clip whose time runs unevenly or backwards (a speed ramp, a
+ * reversed clip). The source is read at its own rate, in order of play, and
+ * each output frame takes the nearest source frame: frames repeat when the
+ * footage is slowed and are skipped when it is sped up. A reversed clip is
+ * read in short stretches from the end, each turned around by ffmpeg, so no
+ * more than a stretch of frames is ever held in memory.
+ */
+class RemapDecoder extends Decoder {
+  private chunks: { args: string[]; frames: number }[];
+  private chunk = 0;
+  /** Index (in the clip's own play order) of the frame on the canvas, and how many the clip has. */
+  private k = -1;
+  private readInChunk = 0;
+  private total: number;
+  private rate: number;
+  private inT: number;
+  private reverse: boolean;
+
+  constructor(
+    media: MediaAsset,
+    clip: SourceClip,
+    plan: LayerPlan,
+    fps: number,
+    o: { file?: string; useProxy?: boolean; scaledPlan: LayerPlan },
+  ) {
+    super(plan, [], media.name);
+    this.rate = readRate(media, clip, fps);
+    this.inT = clip.in;
+    this.reverse = !!clip.reverse;
+    this.total = Math.max(1, Math.round((clip.out - clip.in) * this.rate));
+    // Reversing holds a stretch of decoded frames; keep each stretch to about 100 MB.
+    const perChunk = this.reverse ? Math.max(4, Math.min(this.total, Math.floor(1e8 / (plan.outW * plan.outH * 4)))) : this.total;
+    this.chunks = [];
+    for (let a = 0; a < this.total; a += perChunk) {
+      const frames = Math.min(perChunk, this.total - a);
+      this.chunks.push({ frames, args: remapArgs(media, { inT: clip.in + a / this.rate, frames, rate: this.rate, plan: o.scaledPlan, reverse: this.reverse, interpolate: clip.interpolate, file: o.file, useProxy: o.useProxy }) });
+    }
+    if (this.reverse) this.chunks.reverse();
+    this.args = this.chunks[0].args;
+  }
+
+  /** Source time of the frame `k` in play order. */
+  private timeOf(k: number): number {
+    return this.inT + (this.reverse ? this.total - 1 - k : k) / this.rate;
+  }
+
+  private async nextFrame(): Promise<boolean> {
+    for (;;) {
+      if (this.readInChunk >= this.chunks[this.chunk].frames) {
+        if (this.chunk + 1 >= this.chunks.length) return false;
+        this.stop();
+        this.chunk++;
+        this.readInChunk = 0;
+        this.args = this.chunks[this.chunk].args;
+      }
+      if (await this.read()) {
+        this.readInChunk++;
+        this.k++;
+        return true;
+      }
+      // The stretch came up short (the file ended early): skip the frames it owed.
+      this.k += this.chunks[this.chunk].frames - this.readInChunk;
+      this.readInChunk = this.chunks[this.chunk].frames;
+    }
+  }
+
+  /** Show the source frame nearest to source time `s`, which must not move against the clip's direction. */
+  override async advanceTo(s: number): Promise<void> {
+    if (this.k < 0 && !(await this.nextFrame())) throw this.failure();
+    while (this.k + 1 < this.total && Math.abs(this.timeOf(this.k + 1) - s) < Math.abs(this.timeOf(this.k) - s)) {
+      if (!(await this.nextFrame())) break;
+    }
+  }
+
+  override async advance(): Promise<void> {
+    await this.nextFrame();
   }
 }
 
 export function decoderArgs(
   media: MediaAsset,
-  o: { inT: number; speed: number; fps: number; plan: LayerPlan; frames: number; select?: string; file?: string; useProxy?: boolean },
+  o: { inT: number; speed: number; fps: number; plan: LayerPlan; frames: number; select?: string; file?: string; useProxy?: boolean; interpolate?: SourceClip['interpolate'] },
 ): string[] {
   const spec = o.useProxy ? { input: [] as string[], prefix: '' } : decodeSpec(media);
   const r = o.plan.region;
+  const slowed = o.speed < 1 - 1e-6 && o.interpolate;
   const vf = [
-    `${spec.prefix}${Math.abs(o.speed - 1) > 1e-6 ? `setpts=PTS/${o.speed},` : ''}fps=${o.fps}:start_time=0`,
+    // Slowed footage can have its missing frames made up rather than repeated; that works on the cropped picture to save time.
+    slowed ? `${spec.prefix}crop=${r.w}:${r.h}:${r.x}:${r.y},scale=${o.plan.outW}:${o.plan.outH}:flags=bicubic,setpts=PTS/${o.speed},${interpolation(o.interpolate, o.fps)}` : `${spec.prefix}${Math.abs(o.speed - 1) > 1e-6 ? `setpts=PTS/${o.speed},` : ''}fps=${o.fps}:start_time=0`,
     o.select ? `select='${o.select}'` : '',
-    `crop=${r.w}:${r.h}:${r.x}:${r.y}`,
-    `scale=${o.plan.outW}:${o.plan.outH}:flags=bicubic`,
+    slowed ? '' : `crop=${r.w}:${r.h}:${r.x}:${r.y}`,
+    slowed ? '' : `scale=${o.plan.outW}:${o.plan.outH}:flags=bicubic`,
     'format=rgba',
   ]
     .filter(Boolean)
@@ -297,17 +433,24 @@ export class Compositor {
         frames += count;
       }
       const scale = this.opts.useProxy ? this.proxyScale(media) : 1;
-      const args = decoderArgs(media, {
-        inT: first.in,
-        speed: first.speed,
-        fps,
-        plan: scale === 1 ? plan : this.scaledPlan(plan, scale),
-        frames,
-        select: group.length > 1 ? ranges.join('+') : undefined,
-        file: this.file(media),
-        useProxy: this.opts.useProxy,
-      });
-      const decoder = new Decoder(plan, args, media.name);
+      const scaledPlan = scale === 1 ? plan : this.scaledPlan(plan, scale);
+      const decoder = isRemapped(first)
+        ? new RemapDecoder(media, first, plan, fps, { file: this.file(media), useProxy: this.opts.useProxy, scaledPlan })
+        : new Decoder(
+            plan,
+            decoderArgs(media, {
+              inT: first.in,
+              speed: first.speed,
+              fps,
+              plan: scaledPlan,
+              frames,
+              select: group.length > 1 ? ranges.join('+') : undefined,
+              file: this.file(media),
+              useProxy: this.opts.useProxy,
+              interpolate: first.interpolate,
+            }),
+            media.name,
+          );
       const run: Run = { decoder, clipIds: new Set(group.map((s) => s.clip.id)), lastIndex: group[group.length - 1].index };
       for (const s of group) this.runs.set(s.clip.id, run);
       group = [];
@@ -327,6 +470,9 @@ export class Compositor {
         const same =
           prev.mediaId === c.mediaId &&
           prev.speed === c.speed &&
+          prev.interpolate === c.interpolate &&
+          !isRemapped(prev) &&
+          !isRemapped(c) &&
           JSON.stringify(prev.framing ?? null) === JSON.stringify(c.framing ?? null) &&
           !c.framing?.track;
         if (!(same && aligned && gap >= -1e-6 && gap <= 6)) flush();
@@ -359,19 +505,23 @@ export class Compositor {
       const { width: W, height: H, fps } = this.doc.settings;
       const plan = planLayer(this.p, media, clip, W, H, fps, 1);
       const scale = this.opts.useProxy ? this.proxyScale(media) : 1;
-      d = new Decoder(
-        plan,
-        decoderArgs(media, {
-          inT: clip.in,
-          speed: clip.speed,
-          fps,
-          plan: scale === 1 ? plan : this.scaledPlan(plan, scale),
-          frames: Math.max(1, toFrames(srcDuration(clip), fps)),
-          file: this.file(media),
-          useProxy: this.opts.useProxy,
-        }),
-        media.name,
-      );
+      const scaledPlan = scale === 1 ? plan : this.scaledPlan(plan, scale);
+      d = isRemapped(clip)
+        ? new RemapDecoder(media, clip, plan, fps, { file: this.file(media), useProxy: this.opts.useProxy, scaledPlan })
+        : new Decoder(
+            plan,
+            decoderArgs(media, {
+              inT: clip.in,
+              speed: clip.speed,
+              fps,
+              plan: scaledPlan,
+              frames: Math.max(1, toFrames(srcDuration(clip), fps)),
+              file: this.file(media),
+              useProxy: this.opts.useProxy,
+              interpolate: clip.interpolate,
+            }),
+            media.name,
+          );
       this.overlayDecoders.set(clip.id, d);
     }
     return d;
@@ -469,7 +619,7 @@ export class Compositor {
     if (seg && seg.clip.kind === 'media') {
       const m = this.p.media.get(seg.clip.mediaId);
       if (m?.kind === 'image') await this.still(m.id);
-      else await this.runs.get(seg.clip.id)?.decoder.advance();
+      else await this.runs.get(seg.clip.id)?.decoder.advanceTo(sourceAt(seg.clip, t - seg.start));
     }
 
     const active = new Set<ID>();
@@ -479,7 +629,7 @@ export class Compositor {
       if (m.kind === 'image') await this.still(m.id);
       else if (m.kind === 'video') {
         active.add(o.id);
-        await this.overlayDecoder(o, m).advance();
+        await this.overlayDecoder(o, m).advanceTo(sourceAt(o, t - o.start));
       }
     }
     for (const [id, d] of this.overlayDecoders) {

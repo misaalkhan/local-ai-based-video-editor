@@ -4,8 +4,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent as RDragEvent, PointerEvent as RPointerEvent, ReactNode } from 'react';
-import type { ID, MediaAsset, ProjectDoc, Selection, SelectionKind } from '../../shared/types.ts';
-import { clamp, formatTime, layoutMain, snap, srcDuration } from '../../shared/timeline.ts';
+import type { ID, MediaAsset, ProjectDoc, Selection, SelectionKind, SourceClip } from '../../shared/types.ts';
+import { clamp, formatTime, isRemapped, layoutMain, localAt, snap, sourceAt, srcDuration } from '../../shared/timeline.ts';
 import * as ops from '../../shared/ops.ts';
 import { displayWord } from '../../shared/captions.ts';
 import { player } from '../engine/player.ts';
@@ -41,6 +41,21 @@ interface Item {
   transition?: boolean;
   /** Keyframe times, seconds after the item starts. */
   keys?: number[];
+  /** The clip itself when its time runs unevenly or backwards (a speed ramp, reverse). */
+  clip?: SourceClip;
+  badge?: string;
+}
+
+/** Timeline positions of a clip's speed-ramp points. */
+function rampKeys(c: SourceClip): number[] {
+  return (c.ramp ?? []).map((k) => localAt(c, k.t)).filter((t) => t >= 0 && t <= srcDuration(c));
+}
+
+/** What a clip with uneven or backward time shows in its label, and the clip for drawing its strip. */
+function remap(c: SourceClip): Pick<Item, 'clip' | 'badge'> {
+  if (!isRemapped(c)) return {};
+  const parts = [c.reverse ? 'reverse' : '', c.ramp?.length ? 'ramp' : c.speed !== 1 ? `${c.speed.toFixed(2).replace(/0$/, '')}×` : ''].filter(Boolean);
+  return { clip: c, badge: parts.join(' ') };
 }
 
 interface Row {
@@ -91,8 +106,8 @@ function buildRows(doc: ProjectDoc, d: NonNullable<ReturnType<typeof useDerived>
   const overlays = pack(
     doc.overlays.map((o) => ({
       kind: 'overlay' as const, id: o.id, start: o.start, end: o.start + srcDuration(o), label: name(o.mediaId, o.name), tone: 'overlay',
-      keys: [...(o.keyframes ?? []).map((k) => k.t), ...(o.motion ?? []).map((k) => k.t)],
-      mediaId: o.mediaId, inT: o.in, speed: o.speed, volume: o.volume, muted: o.muted,
+      keys: [...(o.keyframes ?? []).map((k) => k.t), ...(o.motion ?? []).map((k) => k.t), ...rampKeys(o)],
+      mediaId: o.mediaId, inT: o.in, speed: o.speed, volume: o.volume, muted: o.muted, ...remap(o),
     })),
   );
   overlays.reverse().forEach((items, i, all) => rows.push({ key: `o${i}`, kind: 'overlay', label: all.length > 1 ? `B-roll ${all.length - i}` : 'B-roll', icon: 'image', items }));
@@ -115,9 +130,9 @@ function buildRows(doc: ProjectDoc, d: NonNullable<ReturnType<typeof useDerived>
         ? { kind: 'main' as const, id: seg.clip.id, start: seg.start, end: seg.end, label: seg.clip.name ?? 'Colour card', tone: 'card', color: seg.clip.color, transition: !!seg.clip.transition && seg.index > 0 }
         : {
             kind: 'main' as const, id: seg.clip.id, start: seg.start, end: seg.end, label: name(seg.clip.mediaId, seg.clip.name), tone: 'main',
-            mediaId: seg.clip.mediaId, inT: seg.clip.in, speed: seg.clip.speed, volume: seg.clip.volume, muted: seg.clip.muted,
+            mediaId: seg.clip.mediaId, inT: seg.clip.in, speed: seg.clip.speed, volume: seg.clip.volume, muted: seg.clip.muted, ...remap(seg.clip),
             transition: !!seg.clip.transition && seg.index > 0,
-            keys: seg.clip.motion?.map((k) => k.t),
+            keys: [...(seg.clip.motion ?? []).map((k) => k.t), ...rampKeys(seg.clip)],
           },
     ),
   });
@@ -150,6 +165,9 @@ function ClipArt({ projectId, media, item, x, width, height, pps, view, mode }: 
   const inT = item.inT ?? 0;
   const speed = item.speed ?? 1;
   const gain = item.muted ? 0 : Math.min(1.4, item.volume ?? 1);
+  const remapped = item.clip;
+  /** Source time under a point of the item, seconds after its start. */
+  const srcAt = (local: number) => (remapped ? sourceAt(remapped, local) : inT + local * speed);
 
   useEffect(() => {
     const c = ref.current;
@@ -166,7 +184,7 @@ function ClipArt({ projectId, media, item, x, width, height, pps, view, mode }: 
       const s = media.strip;
       const slot = s.tileW * (height / s.tileH);
       for (let px = Math.floor(a / slot) * slot; px < b; px += slot) {
-        const t = inT + ((px + slot / 2) / pps) * speed;
+        const t = srcAt((px + slot / 2) / pps);
         const idx = clamp(Math.floor(t / s.interval), 0, s.count - 1);
         ctx.drawImage(strip, idx * s.tileW, 0, s.tileW, s.tileH, px - a, 0, slot + 0.5, height);
       }
@@ -181,8 +199,7 @@ function ClipArt({ projectId, media, item, x, width, height, pps, view, mode }: 
       }
       ctx.fillStyle = film ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.72)';
       for (let px = 0; px < w; px++) {
-        const t0 = inT + ((a + px) / pps) * speed;
-        const t1 = inT + ((a + px + 1) / pps) * speed;
+        const [t0, t1] = [srcAt((a + px) / pps), srcAt((a + px + 1) / pps)].sort((u, v) => u - v);
         const i0 = Math.max(0, Math.floor(t0 * 100));
         const i1 = Math.min(pk.data.length, Math.max(i0 + 1, Math.ceil(t1 * 100)));
         let m = 0;
@@ -192,7 +209,7 @@ function ClipArt({ projectId, media, item, x, width, height, pps, view, mode }: 
         else ctx.fillRect(px, (height - h) / 2, 1, h);
       }
     }
-  }, [a, w, height, pps, inT, speed, gain, media, mode, projectId, tick, b]);
+  }, [a, w, height, pps, inT, speed, gain, media, mode, projectId, tick, b, remapped]);
 
   if (w <= 0) return null;
   return <canvas ref={ref} className="clip-art" style={{ left: a, width: w, height }} />;
@@ -515,7 +532,7 @@ export function Timeline() {
         ))}
         <span className="tl-item-label">
           {item.muted && <Icon name="mute" size={11} />}
-          {item.speed !== undefined && item.speed !== 1 && <b>{item.speed.toFixed(2).replace(/0$/, '')}×</b>}
+          {item.badge ? <b>{item.badge}</b> : item.speed !== undefined && item.speed !== 1 && <b>{item.speed.toFixed(2).replace(/0$/, '')}×</b>}
           {item.label}
         </span>
         {item.kind !== 'caption' && w > 14 && (

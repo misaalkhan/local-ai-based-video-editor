@@ -12,7 +12,7 @@ import type { FaceTrack, ID, MediaAsset, ProjectDoc, SourceClip } from '../../sh
 import { renderFrame } from '../../shared/draw.ts';
 import type { FrameProvider, LayerImage } from '../../shared/draw.ts';
 import type { Ctx2D, DrawableImage } from '../../shared/graphics.ts';
-import { clamp, clipGainAt, segAt, srcDuration, transitionLength } from '../../shared/timeline.ts';
+import { clamp, clipGainAt, isRemapped, segAt, sourceAt, speedAt, srcDuration, transitionLength } from '../../shared/timeline.ts';
 import type { MainSeg, VisualRef } from '../../shared/timeline.ts';
 import type { Derived } from '../store.ts';
 
@@ -276,17 +276,26 @@ export class Player {
   private drive(slot: Slot, clip: SourceClip, expected: number, gain: number): void {
     const el = slot.el;
     slot.frozen = false;
+    // The browser cannot play backwards: a reversed clip is stepped through by seeking, silently. The export plays it properly.
+    if (this.playing && clip.reverse) {
+      if (!el.paused) el.pause();
+      this.seekTo(slot, expected);
+      this.setGain(slot, 0);
+      return;
+    }
+    // Browsers accept rates from 1/16 to 16; a ramp changes the rate as it goes.
+    const rate = clamp(speedAt(clip, expected), 0.0625, 16);
     if (this.playing) {
       if (el.paused) {
         if (Math.abs(el.currentTime - expected) > 0.08) this.seekTo(slot, expected);
         if (!el.seeking && slot.target === null && el.readyState >= 2) {
-          el.playbackRate = clip.speed;
+          el.playbackRate = rate;
           void el.play().catch(() => {});
         }
       } else {
         const drift = el.currentTime - expected;
         if (Math.abs(drift) > 0.3) this.seekTo(slot, expected);
-        else el.playbackRate = clip.speed * (Math.abs(drift) > 0.045 ? (drift > 0 ? 0.96 : 1.04) : 1);
+        else el.playbackRate = clamp(rate * (Math.abs(drift) > 0.045 ? (drift > 0 ? 0.96 : 1.04) : 1), 0.0625, 16);
       }
     } else {
       if (!el.paused) el.pause();
@@ -312,7 +321,7 @@ export class Player {
 
     if (seg && seg.clip.kind === 'media' && media) {
       const clip = seg.clip;
-      const expected = clip.in + (t - seg.start) * clip.speed;
+      const expected = sourceAt(clip, t - seg.start);
       if (a.clipId !== clip.id || a.frozen) {
         const prev = layout[seg.index - 1];
         const continues =
@@ -322,6 +331,8 @@ export class Player {
           !a.frozen &&
           prev.clip.mediaId === clip.mediaId &&
           prev.clip.speed === clip.speed &&
+          !isRemapped(prev.clip) &&
+          !isRemapped(clip) &&
           Math.abs(prev.clip.out - clip.in) < 0.02;
         if (continues) a.clipId = clip.id;
         else if (b.clipId === clip.id && !b.frozen) {
@@ -346,7 +357,7 @@ export class Player {
       const from = layout[seg.index - 1];
       const fm = from.clip.kind === 'media' ? this.isVideo(from.clip.mediaId) : null;
       if (from.clip.kind === 'media' && fm) {
-        const last = Math.max(from.clip.in, from.clip.out - from.clip.speed / this.data.doc.settings.fps);
+        const last = sourceAt(from.clip, Math.max(0, srcDuration(from.clip) - 1 / this.data.doc.settings.fps));
         if (b.clipId !== from.clip.id || !b.frozen) this.park(b, from.clip, fm, last, true);
       }
       return;
@@ -365,8 +376,10 @@ export class Player {
         cur.kind === 'media' &&
         cur.mediaId === next.clip.mediaId &&
         cur.speed === next.clip.speed &&
+        !isRemapped(cur) &&
+        !isRemapped(next.clip) &&
         Math.abs(cur.out - next.clip.in) < 0.02;
-      if (!contiguous && (b.clipId !== next.clip.id || b.frozen)) this.park(b, next.clip, nm, next.clip.in);
+      if (!contiguous && (b.clipId !== next.clip.id || b.frozen)) this.park(b, next.clip, nm, sourceAt(next.clip, 0));
       break;
     }
   }
@@ -396,8 +409,8 @@ export class Player {
       if (t < clip.start) {
         if (!slot.el.paused) slot.el.pause();
         this.setGain(slot, 0);
-        this.seekTo(slot, clip.in);
-      } else this.drive(slot, clip, clip.in + (t - clip.start) * clip.speed, gainOf(clip));
+        this.seekTo(slot, sourceAt(clip, 0));
+      } else this.drive(slot, clip, sourceAt(clip, t - clip.start), gainOf(clip));
     }
     for (const [id, slot] of pool) {
       if (wanted.has(id)) continue;
@@ -591,3 +604,6 @@ export class Player {
 }
 
 export const player = new Player();
+
+// For the dev scripts in data/dev, which drive the page from outside.
+Object.assign(globalThis, { __studioPlayer: player });

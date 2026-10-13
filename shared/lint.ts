@@ -6,7 +6,7 @@
 import type { FaceTrack, ID, ProjectDoc } from './types.ts';
 import type { CaptionCard } from './captions.ts';
 import type { MainSeg } from './timeline.ts';
-import { contentDuration, faceAt, framingAt, layerGeometry, mainDuration, segAt, srcDuration } from './timeline.ts';
+import { contentDuration, faceAt, framingAt, layerGeometry, mainDuration, segAt, sourceAt, srcDuration } from './timeline.ts';
 
 export interface Issue {
   severity: 'fix' | 'check' | 'note';
@@ -41,7 +41,7 @@ export function faceInFrame(doc: ProjectDoc, ctx: Pick<LintContext, 'layout' | '
   const track = ctx.faces(c.mediaId);
   const size = ctx.mediaSize(c.mediaId);
   if (!track || !size) return null;
-  const st = c.in + (t - seg.start) * c.speed;
+  const st = sourceAt(c, t - seg.start);
   const face = faceAt(track, st);
   if (!face) return null;
   const { width: W, height: H } = doc.settings;

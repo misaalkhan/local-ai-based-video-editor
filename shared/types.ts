@@ -117,6 +117,25 @@ export interface SourceClip extends ItemMeta {
   fx?: ClipFx;
   /** Movement of the picture over the clip's life (a push-in, a pan, a Ken Burns drift): keyframes of the framing. */
   motion?: MotionKeyframe[];
+  /**
+   * A speed ramp: the speed at points of the source, changing evenly between
+   * them and held before the first and after the last. Replaces `speed`.
+   */
+  ramp?: SpeedKeyframe[];
+  /** Play the source range backwards. */
+  reverse?: boolean;
+  /**
+   * How slowed footage gets its missing frames on export: repeated (unset),
+   * blended with their neighbours, or made up by optical flow (slow to export).
+   * The preview always repeats frames.
+   */
+  interpolate?: 'blend' | 'flow';
+}
+
+/** The speed at a moment of the source file (seconds). */
+export interface SpeedKeyframe {
+  t: number;
+  speed: number;
 }
 
 /** A framing at a moment, in seconds after the clip starts. Missing values keep the clip's framing. */
@@ -377,7 +396,7 @@ export interface MediaAsset {
   /** Share of the audio that is above the noise floor, 0..1. */
   soundRatio?: number;
   /** Where the file came from when it was not added by the user. */
-  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme';
+  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme' | 'still';
   /** How many different voices were heard, when speaker labels are available. */
   speakers?: number;
   /** Short handle the chat agent uses for this file's words ("a", "b", ...). */

@@ -16,6 +16,7 @@ import type {
   TransitionType,
   MotionKeyframe,
   Ease,
+  SpeedKeyframe,
 } from './types.ts';
 
 export const EPS = 1e-6;
@@ -31,8 +32,140 @@ export function snap(t: number, fps: number): number {
   return toFrames(t, fps) / fps;
 }
 
+// ---------------------------------------------------------------------------
+// Time mapping: where a moment of a clip falls in its source file. Constant
+// speed is a straight line; a ramp is a speed curve, straight between its
+// points (in source seconds), so the time to play a stretch is the integral
+// of 1/speed, which has a closed form on every piece; a reversed clip walks
+// the same curve from `out` back to `in`.
+
+export const MIN_SPEED = 0.05;
+export const MAX_SPEED = 16;
+
+/** The ramp's points in order, with sane speeds; empty when the clip has a plain speed. */
+export function rampPoints(c: Pick<SourceClip, 'ramp'>): SpeedKeyframe[] {
+  if (!c.ramp?.length) return [];
+  return c.ramp
+    .filter((k) => Number.isFinite(k.t) && Number.isFinite(k.speed))
+    .map((k) => ({ t: k.t, speed: clamp(k.speed, MIN_SPEED, MAX_SPEED) }))
+    .sort((a, b) => a.t - b.t);
+}
+
+export function isRemapped(c: Pick<SourceClip, 'ramp' | 'reverse'>): boolean {
+  return !!c.reverse || !!c.ramp?.length;
+}
+
+/** Speed (always positive, direction aside) at source time `s`. */
+export function speedAt(c: SourceClip, s: number): number {
+  const pts = rampPoints(c);
+  if (!pts.length) return clamp(c.speed || 1, MIN_SPEED, MAX_SPEED);
+  if (s <= pts[0].t) return pts[0].speed;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (s <= b.t) return b.t - a.t < EPS ? b.speed : a.speed + ((b.speed - a.speed) * (s - a.t)) / (b.t - a.t);
+  }
+  return pts[pts.length - 1].speed;
+}
+
+/** Seconds it takes to play the source from `a` to `b` (negative when b < a). */
+function travel(c: SourceClip, a: number, b: number): number {
+  const pts = rampPoints(c);
+  if (!pts.length) return (b - a) / speedAt(c, 0);
+  // Cumulative play time at each point, measured from the first.
+  const cum: number[] = [0];
+  for (let i = 0; i + 1 < pts.length; i++) cum.push(cum[i] + piece(pts[i], pts[i + 1], pts[i + 1].t));
+  const at = (x: number): number => {
+    if (x <= pts[0].t) return (x - pts[0].t) / pts[0].speed;
+    for (let i = 0; i + 1 < pts.length; i++) if (x <= pts[i + 1].t) return cum[i] + piece(pts[i], pts[i + 1], x);
+    const last = pts.length - 1;
+    return cum[last] + (x - pts[last].t) / pts[last].speed;
+  };
+  return at(b) - at(a);
+}
+
+/** Play time from point `a` to source time `x` on the straight piece a→b. */
+function piece(a: SpeedKeyframe, b: SpeedKeyframe, x: number): number {
+  const len = b.t - a.t;
+  if (len < EPS) return 0;
+  const slope = (b.speed - a.speed) / len;
+  if (Math.abs(slope) < 1e-9) return (x - a.t) / a.speed;
+  return Math.log((a.speed + slope * (x - a.t)) / a.speed) / slope;
+}
+
+/** The source time reached `local` seconds after playing forward from source time `from`. */
+function arrive(c: SourceClip, from: number, local: number): number {
+  const pts = rampPoints(c);
+  if (!pts.length) return from + local * speedAt(c, 0);
+  // Walk the pieces, spending play time until it runs out.
+  let s = from;
+  let left = local;
+  const dir = left >= 0 ? 1 : -1;
+  for (let guard = 0; guard < pts.length + 2 && Math.abs(left) > 1e-12; guard++) {
+    // The piece `s` is on, and where it ends in the direction of travel.
+    let i = pts.findIndex((p, k) => k + 1 < pts.length && s >= p.t - EPS && s < pts[k + 1].t - EPS);
+    if (dir < 0) i = pts.findIndex((p, k) => k + 1 < pts.length && s > p.t + EPS && s <= pts[k + 1].t + EPS);
+    if (i < 0) {
+      // Before the first point or after the last: constant speed, no end.
+      const v = speedAt(c, s);
+      const edge = dir > 0 ? (s < pts[0].t - EPS ? pts[0].t : Infinity) : s > pts[pts.length - 1].t + EPS ? pts[pts.length - 1].t : -Infinity;
+      const need = (edge - s) / v;
+      if (!Number.isFinite(edge) || Math.abs(need) >= Math.abs(left)) return s + left * v;
+      s = edge;
+      left -= need;
+      continue;
+    }
+    const a = pts[i];
+    const b = pts[i + 1];
+    const end = dir > 0 ? b.t : a.t;
+    const need = piece(a, b, end) - piece(a, b, s);
+    if (Math.abs(need) >= Math.abs(left) - 1e-12) {
+      // Lands on this piece: invert its closed form.
+      const slope = (b.speed - a.speed) / (b.t - a.t);
+      const v0 = a.speed + slope * (s - a.t);
+      return Math.abs(slope) < 1e-9 ? s + left * v0 : s + (v0 * (Math.exp(slope * left) - 1)) / slope;
+    }
+    s = end;
+    left -= need;
+  }
+  return s;
+}
+
+/** How long the clip plays for. */
 export function srcDuration(c: SourceClip): number {
-  return Math.max(0, (c.out - c.in) / (c.speed || 1));
+  return Math.max(0, travel(c, c.in, c.out));
+}
+
+/**
+ * The source time showing `local` seconds into the clip. Beyond the clip's
+ * ends it keeps going at the end speeds, which is what trims and extensions
+ * need. Exact at 0 and at the clip's length.
+ */
+export function sourceAt(c: SourceClip, local: number): number {
+  const dur = srcDuration(c);
+  if (Math.abs(local) < EPS) return c.reverse ? c.out : c.in;
+  if (Math.abs(local - dur) < EPS) return c.reverse ? c.in : c.out;
+  return c.reverse ? arrive(c, c.out, -local) : arrive(c, c.in, local);
+}
+
+/** Seconds into the clip at which source time `s` shows. */
+export function localAt(c: SourceClip, s: number): number {
+  return c.reverse ? travel(c, s, c.out) : travel(c, c.in, s);
+}
+
+/** The stretch of the source played between two moments of the clip. */
+export function sourceRange(c: SourceClip, localA: number, localB: number): { in: number; out: number } {
+  const a = sourceAt(c, localA);
+  const b = sourceAt(c, localB);
+  return { in: Math.min(a, b), out: Math.max(a, b) };
+}
+
+/** Seconds the clip could grow at one end before running out of source. */
+export function maxExtend(c: SourceClip, edge: 'head' | 'tail', mediaDur: number): number {
+  const toFront = travel(c, 0, c.in);
+  const toBack = travel(c, c.out, mediaDur);
+  const head = c.reverse ? toBack : toFront;
+  return Math.max(0, edge === 'head' ? head : c.reverse ? toFront : toBack);
 }
 
 export function mainClipDuration(c: MainClip): number {
@@ -333,7 +466,7 @@ export function sceneAt(doc: ProjectDoc, layout: MainSeg[], t: number): Scene {
       clip: seg.clip,
       role: 'main',
       clipStart: seg.start,
-      sourceTime: seg.clip.in + (t - seg.start) * seg.clip.speed,
+      sourceTime: sourceAt(seg.clip, t - seg.start),
       opacity: 1,
     };
   }
@@ -351,7 +484,7 @@ export function sceneAt(doc: ProjectDoc, layout: MainSeg[], t: number): Scene {
       clip: o,
       role: 'overlay',
       clipStart: o.start,
-      sourceTime: o.in + local * o.speed,
+      sourceTime: sourceAt(o, local),
       opacity: (o.opacity ?? 1) * tr.opacity * fadeFactor(local, dur, o.fadeIn, o.fadeOut),
       transform: tr,
       radius: o.radius,

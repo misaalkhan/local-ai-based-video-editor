@@ -1,17 +1,19 @@
 // Properties of whatever is selected on the timeline.
 
-import type { AnimKind, AudioClip, BlendMode, ChromaKey, Ease, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, ZoomItem } from '../../shared/types.ts';
-import { mediaUrl } from '../api.ts';
+import { useState } from 'react';
+
+import type { AnimKind, AudioClip, BlendMode, ChromaKey, Ease, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, SpeedKeyframe, ZoomItem } from '../../shared/types.ts';
+import { api, mediaUrl } from '../api.ts';
 import { player } from '../engine/player.ts';
 import { usePlayerTime } from '../hooks.ts';
-import { framingAt } from '../../shared/timeline.ts';
+import { clamp, framingAt, localAt, sourceAt, speedAt } from '../../shared/timeline.ts';
 import { transformAt } from '../../shared/graphics.ts';
 import * as ops from '../../shared/ops.ts';
 import { FONT_FAMILIES, FONT_NOTES, nearestWeight, weightsOf } from '../../shared/fonts.ts';
 import { defaultColor } from '../../shared/graphics.ts';
 import { formatTime, srcDuration } from '../../shared/timeline.ts';
 import { Icon } from '../icons.tsx';
-import { setUi, useDerived, useDoc, useStore } from '../store.ts';
+import { fail, setUi, toast, useDerived, useDoc, useStore } from '../store.ts';
 import { commit, deleteSelection, duplicateSelection, edit, live, mediaDur } from '../actions.ts';
 import { Button, ColorInput, Empty, Field, Section, Segmented, Select, Slider, TextInput, Toggle } from '../ui.tsx';
 
@@ -119,6 +121,107 @@ const EASES: { value: Ease; label: string }[] = [
   { value: 'out', label: 'Slow down' },
   { value: 'back', label: 'Overshoot' },
 ];
+
+const HOLDS = [1, 2, 3, 5].map((v) => ({ value: String(v), label: `${v} s` }));
+
+/** Speed, speed ramps, reverse, smoothing of slow motion, and freeze frames of a video clip. */
+function SpeedEditor({ kind, clip, start }: { kind: 'main' | 'overlay'; clip: SourceClip; start: number }) {
+  const doc = useDoc()!;
+  const projectId = useStore((s) => s.projectId)!;
+  const fps = doc.settings.fps;
+  const md = mediaDur(clip.mediaId);
+  const length = srcDuration(clip);
+  const time = usePlayerTime();
+  const local = clamp(time - start, 0, length);
+  const inside = time >= start - 1e-6 && time < start + length - 1e-6;
+  const src = sourceAt(clip, local);
+  const ramp = clip.ramp ?? [];
+  const [hold, setHold] = useState('2');
+  const [busy, setBusy] = useState(false);
+  const set = (patch: Partial<SourceClip>) => live((d) => ops.updateClip(d, kind, clip.id, patch, md));
+  const now = (patch: Partial<SourceClip>, label: string) => edit((d) => ops.updateClip(d, kind, clip.id, patch, md), label);
+  const done = (label: string) => () => commit(label);
+  const here = ramp.find((k) => Math.abs(localAt(clip, k.t) - local) <= 0.5 / fps);
+  const addHere = () => now({ ramp: ops.upsertKeyframe(ramp, { t: ops.snapSource(src), speed: speedAt(clip, src) }, fps) }, 'Add speed point');
+  const setPoint = (k: SpeedKeyframe, speed: number, commitNow: boolean) => {
+    const list = ramp.map((x) => (x === k ? { ...x, speed } : x));
+    if (commitNow) now({ ramp: list }, 'Speed point');
+    else set({ ramp: list });
+  };
+  const freeze = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const still = await api.still(projectId, clip.mediaId, src);
+      const seconds = Number(hold);
+      edit((d) => ops.freezeFrame(d, time, still, seconds), 'Freeze frame');
+      toast(`Holding this frame for ${seconds} s.`, 'success');
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title="Speed" action={ramp.length ? <Button size="sm" variant="ghost" onClick={() => now({ ramp: undefined }, 'Remove speed ramp')}>Plain speed</Button> : undefined}>
+      {!ramp.length && (
+        <Field label="Speed">
+          <Slider value={clip.speed} min={0.1} max={8} step={0.05} onChange={(v) => set({ speed: v })} onCommit={done('Speed')} format={(v) => `${v.toFixed(2)}×`} />
+        </Field>
+      )}
+      <div className="row wrap">
+        {ops.RAMP_PRESETS.map((r) => (
+          <Button key={r.id} size="sm" title={r.hint} onClick={() => now({ ramp: ops.rampPreset(clip, src, r.id) }, `Speed ramp: ${r.label}`)}>
+            {r.label}
+          </Button>
+        ))}
+      </div>
+      <div className="row">
+        <Button size="sm" icon="plus" onClick={addHere}>
+          {here ? 'Update speed point here' : 'Add speed point at playhead'}
+        </Button>
+      </div>
+      {ramp.length > 0 && (
+        <div className="keyframes">
+          {ramp.map((k) => (
+            <div key={k.t} className={`keyframe ${here === k ? 'on' : ''}`}>
+              <button type="button" className="keyframe-time" onClick={() => player.seek(start + clamp(localAt(clip, k.t), 0, length))} title="Go to this point">
+                <Icon name="target" size={11} /> {clamp(localAt(clip, k.t), 0, length).toFixed(2)} s
+              </button>
+              <span className="keyframe-slider">
+                <Slider value={k.speed} min={0.1} max={8} step={0.05} onChange={(v) => setPoint(k, v, false)} onCommit={() => commit('Speed point')} format={(v) => `${v.toFixed(2)}×`} />
+              </span>
+              <button type="button" className="icon-btn" onClick={() => now({ ramp: ops.removeKeyframe(ramp, k.t, 1e6) }, 'Remove speed point')} title="Remove point" aria-label="Remove point">
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="row wrap">
+        <Toggle checked={!!clip.reverse} onChange={(v) => now({ reverse: v || undefined }, v ? 'Reverse' : 'Play forwards')} label="Reverse" />
+      </div>
+      <Field label="Slow motion frames (export)">
+        <Segmented
+          value={clip.interpolate ?? 'none'}
+          options={[{ value: 'none', label: 'Repeat' }, { value: 'blend', label: 'Blend' }, { value: 'flow', label: 'Optical flow' }]}
+          onChange={(v) => now({ interpolate: v === 'none' ? undefined : (v as 'blend' | 'flow') }, 'Slow motion frames')}
+        />
+      </Field>
+      {kind === 'main' && (
+        <div className="row">
+          <Button size="sm" icon="pause" disabled={busy || !inside} title={inside ? 'Hold the frame under the playhead' : 'Put the playhead inside this clip first'} onClick={() => void freeze()}>
+            {busy ? 'Freezing…' : 'Freeze frame here'}
+          </Button>
+          <Select value={hold} options={HOLDS} onChange={setHold} />
+        </div>
+      )}
+      <div className="hint">
+        A ramp holds the speed at each point and changes it evenly in between; the clip gets longer or shorter to match. The preview plays ramps live and steps through reversed clips without sound; the export plays everything properly. Blend and optical flow make slowed footage smooth on export (optical flow is slow to export).
+      </div>
+    </Section>
+  );
+}
 
 /** Keyframes of the picture's framing inside a main or b-roll clip. */
 function MotionEditor({ kind, clip, start }: { kind: 'main' | 'overlay'; clip: SourceClip; start: number }) {
@@ -502,12 +605,13 @@ function ClipEditor({ kind, clip }: { kind: 'main' | 'overlay' | 'audio'; clip: 
           <span>From the source</span>
           <b>{formatTime(clip.in, true)} to {formatTime(clip.out, true)}</b>
         </div>
-        {m?.kind !== 'image' && (
+        {m?.kind === 'audio' && (
           <Field label="Speed">
             <Slider value={clip.speed} min={0.25} max={4} step={0.05} onChange={(v) => set({ speed: v })} onCommit={done('Speed')} format={(v) => `${v.toFixed(2)}×`} />
           </Field>
         )}
       </Section>
+      {m?.kind === 'video' && kind !== 'audio' && <SpeedEditor kind={kind} clip={clip} start={clipStart} />}
       {hasSound && (
         <Section title="Sound">
           <div className="row">

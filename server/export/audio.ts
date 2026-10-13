@@ -20,6 +20,8 @@ import {
   contentDuration,
   duckIntervals,
   layoutMain,
+  localAt,
+  rampPoints,
   srcDuration,
   toFrames,
 } from '../../shared/timeline.ts';
@@ -39,6 +41,35 @@ function tempo(speed: number): string[] {
     s /= 0.5;
   }
   if (Math.abs(s - 1) > 1e-4) out.push(`atempo=${n(Math.min(100, s))}`);
+  return out;
+}
+
+/**
+ * A speed ramp as stretches of the source at a constant tempo each: constant
+ * parts of the ramp are one stretch, a change of speed is cut into steps of
+ * about 0.2x, and each stretch is stretched to exactly the time it plays for.
+ */
+export function tempoPieces(clip: SourceClip): { a: number; b: number; tempo: number }[] {
+  const pts = rampPoints(clip);
+  const marks = new Set<number>([clip.in, clip.out]);
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const steps = Math.min(16, Math.max(1, Math.ceil(Math.abs(b.speed - a.speed) / 0.2)));
+    for (let k = 0; k <= steps; k++) {
+      const t = a.t + ((b.t - a.t) * k) / steps;
+      if (t > clip.in + 0.02 && t < clip.out - 0.02) marks.add(Math.round(t * 1e4) / 1e4);
+    }
+  }
+  const cuts = [...marks].sort((x, y) => x - y);
+  const out: { a: number; b: number; tempo: number }[] = [];
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const a = cuts[i];
+    const b = cuts[i + 1];
+    const plays = Math.abs(localAt({ ...clip, reverse: false }, b) - localAt({ ...clip, reverse: false }, a));
+    if (plays < 1e-6) continue;
+    out.push({ a, b, tempo: (b - a) / plays });
+  }
   return out;
 }
 
@@ -123,11 +154,23 @@ export function planAudio(p: Project, doc: ProjectDoc): AudioPlan {
     const len = Math.round((frames * SAMPLE_RATE) / fps);
     const dur = len / SAMPLE_RATE;
     const out = `c${counter++}`;
-    const f: string[] = [
-      `atrim=start_sample=${samples(clip.in)}:end_sample=${samples(clip.out)}`,
-      'asetpts=PTS-STARTPTS',
-      ...tempo(clip.speed),
-    ];
+    const f: string[] = [];
+    let src: string;
+    if (clip.ramp?.length) {
+      // Each stretch of the ramp at its own tempo, joined end to end.
+      const labels = tempoPieces(clip).map((piece) => {
+        const label = `r${counter++}`;
+        const part = [`atrim=start_sample=${samples(piece.a)}:end_sample=${samples(piece.b)}`, 'asetpts=PTS-STARTPTS', ...tempo(piece.tempo)];
+        chains.push(`[${tap(media)}]${part.join(',')}[${label}]`);
+        return label;
+      });
+      src = `j${counter++}`;
+      chains.push(labels.length === 1 ? `[${labels[0]}]anull[${src}]` : `${labels.map((l) => `[${l}]`).join('')}concat=n=${labels.length}:v=0:a=1[${src}]`);
+    } else {
+      src = tap(media);
+      f.push(`atrim=start_sample=${samples(clip.in)}:end_sample=${samples(clip.out)}`, 'asetpts=PTS-STARTPTS', ...tempo(clip.speed));
+    }
+    if (clip.reverse) f.push('areverse');
     if (Math.abs(clip.volume - 1) > 1e-4) f.push(`volume=${n(clip.volume)}`);
     // A few milliseconds of fade at every cut keeps the waveform from stepping, which would click.
     const fadeIn = Math.max(clip.fadeIn ?? 0, microFade && dur > 0.05 ? 0.006 : 0);
@@ -135,7 +178,7 @@ export function planAudio(p: Project, doc: ProjectDoc): AudioPlan {
     if (fadeIn > 0) f.push(`afade=t=in:st=0:d=${n(Math.min(fadeIn, dur))}`);
     if (fadeOut > 0) f.push(`afade=t=out:st=${n(Math.max(0, dur - fadeOut))}:d=${n(Math.min(fadeOut, dur))}`);
     f.push(`apad=whole_len=${len}`, `atrim=end_sample=${len}`);
-    chains.push(`[${tap(media)}]${f.join(',')}[${out}]`);
+    chains.push(`[${src}]${f.join(',')}[${out}]`);
     return out;
   };
 

@@ -14,7 +14,7 @@ import { renderFrame } from '../../shared/draw.ts';
 import type { FrameProvider, LayerImage } from '../../shared/draw.ts';
 import type { Ctx2D } from '../../shared/graphics.ts';
 import { buildCards, timelineWords } from '../../shared/captions.ts';
-import { formatTime, layoutMain, sceneAt } from '../../shared/timeline.ts';
+import { formatTime, layoutMain, sceneAt, sourceAt, srcDuration } from '../../shared/timeline.ts';
 import type { MainSeg } from '../../shared/timeline.ts';
 import { ensureFonts, planLayer } from './compose.ts';
 import type { LayerPlan } from './compose.ts';
@@ -90,7 +90,7 @@ export async function renderStill(p: Project, source: ProjectDoc, t: number, opt
       (async () => {
         const m = p.media.get(c.mediaId);
         if (m?.kind === 'video') {
-          const f = await clipFrame(p, m, c, Math.max(c.in, c.out - c.speed / fps), width, height, fps);
+          const f = await clipFrame(p, m, c, sourceAt(c, Math.max(0, srcDuration(c) - 1 / fps)), width, height, fps);
           if (f) frozen = { seg: from, layer: f };
         } else if (m?.kind === 'image' && !images.has(m.id)) images.set(m.id, await loadImage(proxyFile(p, m)));
       })(),

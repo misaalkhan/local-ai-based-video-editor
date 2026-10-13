@@ -31,6 +31,7 @@ import type {
   ZoomItem,
   MotionKeyframe,
   Keyframe,
+  SpeedKeyframe,
 } from './types.ts';
 import { ASPECTS } from './types.ts';
 import {
@@ -38,12 +39,20 @@ import {
   EPS,
   clamp,
   contentDuration,
+  framingAt,
   layoutMain,
   mainClipDuration,
+  localAt,
   mainDuration,
+  maxExtend,
+  rampPoints,
   snap,
+  sourceAt,
+  sourceRange,
   srcDuration,
   toFrames,
+  MIN_SPEED,
+  MAX_SPEED,
 } from './timeline.ts';
 import type { MainSeg } from './timeline.ts';
 import { normalizeWord } from './captions.ts';
@@ -136,9 +145,12 @@ export function fitClip<T extends SourceClip>(c: T, fps: number, mediaDur?: numb
   const speed = c.speed > 0 ? c.speed : 1;
   const bounded = mediaDur !== undefined && mediaDur > 0;
   const inn = bounded ? clamp(c.in, 0, Math.max(0, mediaDur - speed / fps)) : Math.max(0, c.in);
-  let n = Math.max(1, toFrames((c.out - inn) / speed, fps));
-  if (bounded) while (n > 1 && inn + (n * speed) / fps > mediaDur + 1e-4) n--;
-  return { ...c, speed, in: inn, out: inn + (n * speed) / fps };
+  // The source end that gives the clip n frames (its ramp decides how far that is).
+  const forward: T = { ...c, speed, in: inn, reverse: false };
+  const endFor = (n: number) => sourceAt(forward, n / fps);
+  let n = Math.max(1, toFrames(srcDuration(forward), fps));
+  if (bounded) while (n > 1 && endFor(n) > mediaDur + 1e-4) n--;
+  return { ...c, speed, in: inn, out: endFor(n) };
 }
 
 export function makeClip(
@@ -223,8 +235,8 @@ function remapTimed(d: ProjectDoc, ranges: Range[]): void {
     if (ne - ns < minDur) return null;
     // A cut in the middle of b-roll shortens its tail rather than making the
     // b-roll itself jump.
-    const inn = c.in + headCut(c.start, end) * c.speed;
-    return { ...c, start: ns, in: inn, out: inn + (ne - ns) * c.speed };
+    const head = headCut(c.start, end);
+    return { ...c, start: ns, ...sourceRange(c, head, head + (ne - ns)) };
   };
   const remapSpan = <T extends { start: number; duration: number }>(x: T): T | null => {
     const ns = map(x.start);
@@ -271,9 +283,7 @@ export function rippleDelete(doc: ProjectDoc, rangesIn: Range[]): ProjectDoc {
     keeps.forEach((k, i) => {
       // Reuse the exact endpoints where a piece reaches the clip's own edge so
       // repeated cuts do not accumulate rounding error.
-      const inn = k.start <= seg.start + EPS ? c.in : c.in + (k.start - seg.start) * c.speed;
-      const out = k.end >= seg.end - EPS ? c.out : c.in + (k.end - seg.start) * c.speed;
-      const piece: MediaMainClip = { ...c, id: i === 0 ? c.id : uid(), in: inn, out };
+      const piece: MediaMainClip = { ...c, id: i === 0 ? c.id : uid(), ...sourceRange(c, k.start - seg.start, k.end - seg.start) };
       if (k.start > seg.start + EPS) {
         delete piece.fadeIn;
         delete piece.transition;
@@ -375,11 +385,11 @@ export function reanchorTimed(before: ProjectDoc, after: ProjectDoc, dropOrphans
     if (!old) return null;
     const same = byId.get(old.clip.id);
     if (old.clip.kind !== 'media') return same ? { t: same.start + Math.min(t - old.start, same.end - same.start - frame), seg: same } : null;
-    const src = old.clip.in + (t - old.start) * old.clip.speed;
+    const src = sourceAt(old.clip, t - old.start);
     const mediaId = old.clip.mediaId;
     const hit = same && inSource(same, mediaId, src) ? same : newLayout.find((x) => inSource(x, mediaId, src));
     if (!hit || hit.clip.kind !== 'media') return null;
-    return { t: hit.start + (src - hit.clip.in) / hit.clip.speed, seg: hit };
+    return { t: hit.start + localAt(hit.clip, src), seg: hit };
   };
   const moveClip = <T extends SourceClip & { start: number }>(c: T): T | null => {
     const m = map(c.start);
@@ -429,9 +439,9 @@ export function trimMain(
     let ext = delta;
     if (c.kind === 'color') c.duration = snap(c.duration + ext, fps);
     else {
-      if (mediaDur && mediaDur > 0) ext = Math.min(ext, Math.floor(((mediaDur - c.out) / c.speed) * fps + 1e-4) / fps);
+      if (mediaDur && mediaDur > 0) ext = Math.min(ext, Math.floor(maxExtend(c, 'tail', mediaDur) * fps + 1e-4) / fps);
       if (ext < frame - EPS) return d;
-      c.out += ext * c.speed;
+      Object.assign(c, sourceRange(c, 0, srcDuration(c) + ext));
     }
     shiftTimed(d, seg.end, ext);
     return d;
@@ -445,10 +455,10 @@ export function trimMain(
   if (c.kind === 'color') c.duration = snap(c.duration + ext, fps);
   else {
     const bounded = mediaDur !== undefined && mediaDur > 0;
-    if (bounded) ext = Math.min(ext, Math.floor((c.in / c.speed) * fps + 1e-4) / fps);
+    if (bounded) ext = Math.min(ext, Math.floor(maxExtend(c, 'head', mediaDur) * fps + 1e-4) / fps);
     if (ext < frame - EPS) return d;
-    if (bounded) c.in -= ext * c.speed;
-    else c.out += ext * c.speed;
+    // A still has no earlier picture to reveal, so it grows at the far end instead.
+    Object.assign(c, bounded ? sourceRange(c, -ext, srcDuration(c)) : sourceRange(c, 0, srcDuration(c) + ext));
   }
   shiftTimed(d, seg.start + frame / 2, ext);
   return d;
@@ -504,18 +514,18 @@ export function trimTimed(
   if (!c) return d;
   const bounded = mediaDur !== undefined && mediaDur > 0;
   const end = c.start + srcDuration(c);
+  const dur = srcDuration(c);
   if (edge === 'start') {
     let ns = Math.min(t, end - frame);
-    if (bounded) ns = Math.max(ns, Math.ceil((c.start - c.in / c.speed) * fps - 1e-4) / fps);
+    if (bounded) ns = Math.max(ns, Math.ceil((c.start - maxExtend(c, 'head', mediaDur)) * fps - 1e-4) / fps);
     ns = Math.max(0, ns);
     const delta = ns - c.start;
-    if (bounded) c.in += delta * c.speed;
-    else c.out -= delta * c.speed;
+    Object.assign(c, bounded ? sourceRange(c, delta, dur) : sourceRange(c, 0, dur - delta));
     c.start = ns;
   } else {
     let ne = Math.max(t, c.start + frame);
-    if (bounded) ne = Math.min(ne, Math.floor((c.start + (mediaDur - c.in) / c.speed) * fps + 1e-4) / fps);
-    c.out = c.in + (ne - c.start) * c.speed;
+    if (bounded) ne = Math.min(ne, Math.floor((c.start + dur + maxExtend(c, 'tail', mediaDur)) * fps + 1e-4) / fps);
+    Object.assign(c, sourceRange(c, 0, ne - c.start));
   }
   return d;
 }
@@ -527,9 +537,8 @@ function splitSource<T extends SourceClip>(c: T, clipStart: number, t: number, f
   const local = t - clipStart;
   const dur = srcDuration(c);
   if (local < 1 / fps - EPS || local > dur - 1 / fps + EPS) return null;
-  const mid = c.in + local * c.speed;
-  const a = { ...c, out: mid };
-  const b = { ...c, id: uid(), in: mid };
+  const a = { ...c, ...sourceRange(c, 0, local) };
+  const b = { ...c, id: uid(), ...sourceRange(c, local, dur) };
   delete a.fadeOut;
   delete b.fadeIn;
   return [a, b];
@@ -802,6 +811,8 @@ export function updateClip(
       if (patch.duration) c.duration = Math.max(1 / fps, snap(patch.duration, fps));
       if (patch.name !== undefined) c.name = patch.name;
     } else {
+      // A plain speed replaces a ramp.
+      if (patch.speed !== undefined && patch.ramp === undefined) delete c.ramp;
       Object.assign(c, patch);
       d.main[before.index] = fitClip(c, fps, mediaDur);
     }
@@ -813,7 +824,113 @@ export function updateClip(
   const list: (OverlayClip | AudioClip)[] = kind === 'overlay' ? d.overlays : d.audio;
   const i = list.findIndex((c) => c.id === id);
   if (i < 0) return d;
-  list[i] = fitClip({ ...list[i], ...patch }, fps, mediaDur);
+  const cur = { ...list[i] };
+  if (patch.speed !== undefined && patch.ramp === undefined) delete cur.ramp;
+  list[i] = fitClip({ ...cur, ...patch }, fps, mediaDur);
+  return d;
+}
+
+// ---------------------------------------------------------------------------
+// Speed
+
+export type RampPreset = 'slow-moment' | 'hero' | 'ramp-in' | 'ramp-out' | 'burst';
+
+export const RAMP_PRESETS: { id: RampPreset; label: string; hint: string }[] = [
+  { id: 'slow-moment', label: 'Slow moment', hint: 'Normal speed, eases into slow motion around the playhead, then back.' },
+  { id: 'hero', label: 'Hero', hint: 'Fast in, slow motion at the playhead, fast out.' },
+  { id: 'ramp-in', label: 'Ramp in', hint: 'Starts fast and settles to normal speed.' },
+  { id: 'ramp-out', label: 'Ramp out', hint: 'Normal speed, then speeds away at the end.' },
+  { id: 'burst', label: 'Burst', hint: 'A quick fast-forward from the playhead.' },
+];
+
+/**
+ * A ready-made speed ramp for a clip, built around a source moment `at` (seconds
+ * in the file; the clip's own range decides what is reachable). `base` is the
+ * clip's normal speed.
+ */
+export function rampPreset(c: SourceClip, at: number, preset: RampPreset, slow = 0.3): SpeedKeyframe[] {
+  const base = c.speed > 0 ? c.speed : 1;
+  const fast = Math.min(MAX_SPEED, base * 4);
+  const lo = Math.max(MIN_SPEED, Math.min(slow, base));
+  const pts: SpeedKeyframe[] = (() => {
+    switch (preset) {
+      case 'slow-moment':
+        return [
+          { t: at - 0.45, speed: base },
+          { t: at - 0.15, speed: lo },
+          { t: at + 0.15, speed: lo },
+          { t: at + 0.45, speed: base },
+        ];
+      case 'hero':
+        return [
+          { t: at - 0.9, speed: Math.min(MAX_SPEED, base * 2) },
+          { t: at - 0.2, speed: lo },
+          { t: at + 0.2, speed: lo },
+          { t: at + 0.9, speed: Math.min(MAX_SPEED, base * 2) },
+        ];
+      case 'ramp-in':
+        return [
+          { t: c.in, speed: fast },
+          { t: Math.min(c.out, c.in + 1.5), speed: base },
+        ];
+      case 'ramp-out':
+        return [
+          { t: Math.max(c.in, c.out - 1.5), speed: base },
+          { t: c.out, speed: fast },
+        ];
+      case 'burst':
+        return [
+          { t: at - 0.08, speed: base },
+          { t: at, speed: fast },
+          { t: at + 1, speed: fast },
+          { t: at + 1.08, speed: base },
+        ];
+    }
+  })();
+  // Keep the points inside the clip: where several land on the same edge, the one nearest the moment wins.
+  const inside = pts.map((k) => ({ t: snapSource(clamp(k.t, c.in, c.out)), speed: k.speed }));
+  const out: SpeedKeyframe[] = [];
+  for (const k of inside) {
+    const prev = out[out.length - 1];
+    if (prev && Math.abs(prev.t - k.t) < 1e-9) {
+      if (k.t < c.out - 1e-9) out[out.length - 1] = k;
+    } else out.push(k);
+  }
+  return out;
+}
+
+/** Source times are kept to the millisecond so saved documents stay tidy. */
+export function snapSource(t: number): number {
+  return Math.round(t * 1000) / 1000;
+}
+
+/**
+ * Hold the frame under `time` for `duration` seconds: the main clip is split
+ * there and a still of that frame (already extracted as `still`) goes between
+ * the halves, framed and graded like the clip. Everything after moves along.
+ */
+export function freezeFrame(doc: ProjectDoc, time: number, still: MediaLike, duration: number, name?: string): ProjectDoc {
+  const fps = doc.settings.fps;
+  const t = snap(time, fps);
+  const seg = layoutMain(doc).find((s) => t >= s.start - EPS && t < s.end - EPS);
+  if (!seg || seg.clip.kind !== 'media') return doc;
+  const src = seg.clip;
+  const local = t - seg.start;
+  const framing = src.motion?.length ? { ...DEFAULT_FRAMING, ...framingAt(src.framing, undefined, sourceAt(src, local), src.motion, local) } : src.framing;
+  const d = splitAt(doc, t, { kind: 'main', id: src.id });
+  const layout = layoutMain(d);
+  // The still goes after whichever piece ends at the split, or before the clip when the split fell on its head.
+  const ending = layout.find((s) => Math.abs(s.end - t) < EPS);
+  const own = layout.find((s) => s.clip.id === src.id);
+  const index = ending ? ending.index + 1 : own ? own.index + (t > seg.end - 1 / fps - EPS ? 1 : 0) : 0;
+  const clip: MediaMainClip = fitClip(
+    { kind: 'media', id: uid(), mediaId: still.id, in: 0, out: Math.max(1 / fps, duration), speed: 1, volume: 1, muted: true, name: name ?? 'Freeze frame' },
+    fps,
+  );
+  if (framing) clip.framing = { ...framing, track: false };
+  if (src.fx) clip.fx = { ...src.fx };
+  d.main.splice(index, 0, clip);
+  shiftTimed(d, t, srcDuration(clip));
   return d;
 }
 
@@ -926,7 +1043,8 @@ export function sourceSpanOnTimeline(layout: MainSeg[], mediaId: ID, span: Range
     const a = Math.max(span.start, c.in);
     const b = Math.min(span.end, c.out);
     if (b - a <= EPS) continue;
-    out.push({ start: seg.start + (a - c.in) / c.speed, end: seg.start + (b - c.in) / c.speed });
+    const [x, y] = [localAt(c, a), localAt(c, b)].sort((u, v) => u - v);
+    out.push({ start: seg.start + x, end: seg.start + y });
   }
   return out;
 }
@@ -1143,7 +1261,7 @@ export function keepPassages(doc: ProjectDoc, passages: Passage[], getWords?: (m
       if (c.mediaId !== p.media.id) continue;
       const a = Math.max(c.in, span.start);
       const b = Math.min(c.out, span.end);
-      if ((b - a) / c.speed < minLen) continue;
+      if (Math.abs(localAt(c, b) - localAt(c, a)) < minLen) continue;
       const piece: MediaMainClip = { ...cloneDoc(c), id: used.has(c.id) ? uid() : c.id, in: a, out: b };
       used.add(c.id);
       delete piece.transition;
@@ -1200,7 +1318,8 @@ export function silenceCutRanges(
       const a2 = a <= c.in + EPS ? a : a + padAfter;
       const b2 = b >= c.out - EPS ? b : b - padBefore;
       if (b2 - a2 < 0.1) continue;
-      cuts.push({ start: seg.start + (a2 - c.in) / c.speed, end: seg.start + (b2 - c.in) / c.speed });
+      const [x, y] = [localAt(c, a2), localAt(c, b2)].sort((u, v) => u - v);
+      cuts.push({ start: seg.start + x, end: seg.start + y });
     }
     for (let i = 0; i < cuts.length - 1; i++) {
       if (cuts[i + 1].start - cuts[i].end < minKeep) {
@@ -1311,11 +1430,15 @@ export function sanitizeDoc(doc: ProjectDoc, hasMedia?: (id: ID) => boolean): Pr
   const ok = (c: SourceClip) =>
     Number.isFinite(c.in) && Number.isFinite(c.out) && c.out > c.in && (!hasMedia || hasMedia(c.mediaId));
   const num = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
-  const fix = <T extends SourceClip>(c: T): T => ({
-    ...c,
-    speed: clamp(num(c.speed, 1), 0.1, 8),
-    volume: clamp(num(c.volume, 1), 0, 4),
-  });
+  const fix = <T extends SourceClip>(c: T): T => {
+    const f: T = { ...c, speed: clamp(num(c.speed, 1), MIN_SPEED, MAX_SPEED), volume: clamp(num(c.volume, 1), 0, 4) };
+    const ramp = Array.isArray(c.ramp) ? rampPoints({ ramp: c.ramp.filter((k) => k && typeof k === 'object') }) : [];
+    if (ramp.length) f.ramp = ramp;
+    else delete f.ramp;
+    if (!c.reverse) delete f.reverse;
+    if (c.interpolate !== 'blend' && c.interpolate !== 'flow') delete f.interpolate;
+    return f;
+  };
   d.main = (d.main ?? []).filter((c) => (c.kind === 'color' ? c.duration > 0 : ok(c))).map((c) => (c.kind === 'color' ? c : fix(c)));
   d.overlays = (d.overlays ?? []).filter(ok).map((c) => ({ ...fix(c), start: Math.max(0, snap(num(c.start, 0), fps)) }));
   d.audio = (d.audio ?? []).filter(ok).map((c) => ({ ...fix(c), start: Math.max(0, snap(num(c.start, 0), fps)) }));

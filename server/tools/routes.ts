@@ -11,6 +11,7 @@ import { searchGifs } from '../gifs.ts';
 import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
 import type { FoundSound } from '../sounds.ts';
 import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
+import { extractStill } from '../stills.ts';
 import { AUDIO_EXT, extOf } from '../probe.ts';
 
 export function register(r: Router): void {
@@ -128,6 +129,21 @@ export function register(r: Router): void {
     if (!t) throw new HttpError(404, 'no such template');
     try {
       c.json({ media: await fetchMeme(p, t), template: t }, 201);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+  });
+
+  /** A frame of a video clip saved as a picture, for freeze frames. */
+  r.post('/api/projects/:pid/stills', async (c) => {
+    const p = getProject(c.params.pid);
+    const body = await c.body<{ mediaId?: string; time?: number }>();
+    const m = p.media.get(String(body.mediaId ?? ''));
+    if (!m) throw new HttpError(404, 'no such media');
+    const time = Number(body.time);
+    if (!Number.isFinite(time)) throw new HttpError(400, 'time must be a number');
+    try {
+      c.json(await extractStill(p, m, time), 201);
     } catch (err) {
       throw new HttpError(400, (err as Error).message);
     }

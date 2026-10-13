@@ -3,6 +3,7 @@
 
 import type { CaptionSettings, ID, ProjectDoc, Range, SourceClip, Word } from './types.ts';
 import type { MainSeg } from './timeline.ts';
+import { localAt } from './timeline.ts';
 
 export type GetWords = (mediaId: ID) => Word[] | undefined;
 
@@ -48,8 +49,10 @@ export function timelineWords(doc: ProjectDoc, layout: MainSeg[], getWords: GetW
       if ((w.t0 + w.t1) / 2 >= clip.out) break;
       const key = `${clip.mediaId}:${i}`;
       const edit = doc.captions.edits[key];
-      const start = clipStart + (Math.max(w.t0, clip.in) - clip.in) / clip.speed;
-      const end = clipStart + (Math.min(w.t1, clip.out) - clip.in) / clip.speed;
+      // On a reversed clip the words run backwards; keep each span the right way round.
+      const [ws, we] = [localAt(clip, Math.max(w.t0, clip.in)), localAt(clip, Math.min(w.t1, clip.out))].sort((a, b) => a - b);
+      const start = clipStart + ws;
+      const end = clipStart + we;
       out.push({
         key,
         mediaId: clip.mediaId,

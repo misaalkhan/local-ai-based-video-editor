@@ -8,7 +8,8 @@ import path from 'node:path';
 import type { ID, MediaAsset, OverlayClip, ProjectDoc, Range, TakeGroup } from '../../shared/types.ts';
 import { ASPECTS, aspectOf } from '../../shared/types.ts';
 import * as ops from '../../shared/ops.ts';
-import { DEFAULT_FRAMING, clamp, contentDuration, layoutMain, snap, srcDuration } from '../../shared/timeline.ts';
+import { DEFAULT_FRAMING, clamp, contentDuration, layoutMain, snap, sourceAt, srcDuration } from '../../shared/timeline.ts';
+import { extractStill } from '../stills.ts';
 import { detectSilences } from '../../shared/silence.ts';
 import { FONT_FAMILIES, FONT_NOTES, nearestWeight } from '../../shared/fonts.ts';
 import { GRAPHIC_PRESETS, GRAPHIC_TEMPLATES } from '../../shared/graphics.ts';
@@ -557,7 +558,7 @@ export const TOOLS: ToolDef[] = [
       source_end: N('Clips: end within the file.'),
       volume_db: N('Clips: level change in dB (0 = original, -6 = half).'),
       muted: B('Clips: silence the clip.'),
-      speed: N('Clips: playback speed, 1 = normal.'),
+      speed: N('Clips: playback speed, 1 = normal (a plain speed replaces any speed ramp; use set_speed for ramps, reverse and freeze frames).'),
       fade_in_s: N('Clips: fade in.'),
       fade_out_s: N('Clips: fade out.'),
       x: N('Graphics and picture-in-picture: horizontal centre, 0-1.'),
@@ -622,10 +623,14 @@ export const TOOLS: ToolDef[] = [
               patch.transform = { x: 0.5, y: 0.5, scale: 1, rotation: 0, opacity: 1, ...(o.transform ?? {}), ...(a.x !== undefined ? { x: num(a.x, 'x') } : {}), ...(a.y !== undefined ? { y: num(a.y, 'y') } : {}), ...(a.scale !== undefined ? { scale: clamp(num(a.scale, 'scale'), 0.05, 1) } : {}) };
             }
           }
-          const speed = (patch.speed as number | undefined) ?? cur.speed;
           const inn = (patch.in as number | undefined) ?? cur.in;
           const want = duration ?? (end !== undefined ? end - (start ?? it.start) : undefined);
-          if (want !== undefined && patch.out === undefined) patch.out = inn + want * speed;
+          if (want !== undefined && patch.out === undefined) {
+            // How far into the source `want` seconds reach, through the clip's speed or ramp (a new speed replaces the ramp).
+            const probe = { ...cur, ...(patch as Partial<typeof cur>), in: inn, reverse: false };
+            if (patch.speed !== undefined) delete probe.ramp;
+            patch.out = sourceAt(probe, want);
+          }
           d = ops.updateClip(d, it.kind, it.id, patch, md);
         }
       }
@@ -1009,6 +1014,92 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       d = ops.setKeyframes(d, it.kind as 'overlay' | 'graphic', it.id, kfs);
       save(ctx, d, 'add_keyframes', `Animated ${it.id}`);
       return { text: `Set ${kfs.length} keyframes on ${it.kind} ${it.id}.` };
+    },
+  },
+  {
+    name: 'set_speed',
+    description:
+      'Speed of a main or b-roll clip: a plain speed, a speed ramp (preset or your own points), reverse, and how slowed footage is smoothed on export. Presets, built around `at` (timeline seconds; default the middle of the clip): slow-moment (normal, eases into slow motion, back to normal: the hit, the reveal, the look), hero (fast in, slow at the moment, fast out), ramp-in (fast start settling to normal), ramp-out (speeds away at the end), burst (a one-second fast-forward). A ramp changes the clip length; later main clips move along. interpolate blend or flow makes slowed footage smooth on export (flow is slowest to export, best for 0.5x and under); the preview repeats frames either way.',
+    schema: obj(
+      {
+        clip_id: S('A main or b-roll clip id.'),
+        speed: N('A plain speed 0.1-8 (clears any ramp).'),
+        preset: S('A ready-made ramp.', ['slow-moment', 'hero', 'ramp-in', 'ramp-out', 'burst']),
+        at: N('Timeline seconds the preset is built around (the moment to slow down or burst from).'),
+        slow: N('The slow speed of slow-moment and hero, default 0.3.'),
+        ramp: { type: 'array', description: 'Your own ramp instead of a preset: points of {at: timeline seconds, speed}, speed changing evenly between them. 2-8 points.', items: obj({ at: N('Timeline seconds (as the clip plays now).'), speed: N('0.05-16.') }, ['at', 'speed']) },
+        clear_ramp: B('Remove the ramp and go back to the plain speed.'),
+        reverse: B('Play backwards.'),
+        interpolate: S('Frames for slowed footage on export.', ['none', 'blend', 'flow']),
+      },
+      ['clip_id'],
+    ),
+    label: (a) => (a.preset ? `Speed ramp: ${str(a.preset)}` : a.reverse ? 'Reversing a clip' : 'Changing the speed'),
+    run: (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.clip_id);
+      if (it.kind !== 'main' && it.kind !== 'overlay') bad('Speed applies to main and b-roll clips.');
+      const clip = sourceClip(v.doc, it.kind, it.id);
+      if (!clip) bad('No such clip.');
+      const media = ctx.p.media.get(clip.mediaId);
+      if (!media || media.kind === 'image') bad('That clip is a picture; its length is set with edit_clip duration.');
+      const patch: Record<string, unknown> = {};
+      const notes: string[] = [];
+      if (a.speed !== undefined) {
+        patch.speed = clamp(num(a.speed, 'speed'), 0.1, 8);
+        patch.ramp = undefined;
+        notes.push(`${patch.speed}x`);
+      }
+      const srcTime = (tl: number) => sourceAt(clip, clamp(tl - it.start, 0, srcDuration(clip)));
+      if (a.preset !== undefined) {
+        const preset = str(a.preset) as ops.RampPreset;
+        if (!ops.RAMP_PRESETS.some((r) => r.id === preset)) bad(`Unknown preset "${preset}".`);
+        const at = a.at !== undefined ? num(a.at, 'at') : it.start + srcDuration(clip) / 2;
+        if (at < it.start - 1e-6 || at > it.end + 1e-6) bad(`at=${sec(at)} is outside ${it.id} (${sec(it.start)}-${sec(it.end)}s).`);
+        patch.ramp = ops.rampPreset({ ...clip, ...(a.speed !== undefined ? { speed: patch.speed as number } : {}) }, srcTime(at), preset, clamp(optNum(a.slow, 'slow') ?? 0.3, 0.05, 1));
+        notes.push(`${preset} ramp around ${sec(at)}s`);
+      } else if (Array.isArray(a.ramp) && a.ramp.length) {
+        const pts = a.ramp as { at: unknown; speed: unknown }[];
+        if (pts.length < 2 || pts.length > 8) bad('A ramp needs 2 to 8 points.');
+        patch.ramp = pts.map((k) => ({ t: ops.snapSource(srcTime(num(k.at, 'ramp.at'))), speed: clamp(num(k.speed, 'ramp.speed'), 0.05, 16) }));
+        notes.push(`ramp with ${pts.length} points`);
+      } else if (a.clear_ramp) {
+        patch.ramp = undefined;
+        notes.push('ramp removed');
+      }
+      if (a.reverse !== undefined) {
+        patch.reverse = !!a.reverse || undefined;
+        notes.push(a.reverse ? 'reversed' : 'forwards');
+      }
+      if (a.interpolate !== undefined) {
+        const mode = str(a.interpolate);
+        patch.interpolate = mode === 'blend' || mode === 'flow' ? mode : undefined;
+        notes.push(mode === 'none' ? 'frames repeated' : `${mode} interpolation`);
+      }
+      if (!notes.length) bad('Nothing to change: give speed, preset, ramp, clear_ramp, reverse or interpolate.');
+      const d = ops.updateClip(v.doc, it.kind, it.id, patch, media.duration);
+      save(ctx, d, 'set_speed', `${notes.join(', ')} on ${it.id}`);
+      const now = findItem(view(ctx.p), it.id);
+      return { text: `${it.kind} clip ${it.id}: ${notes.join(', ')}. It now runs ${sec(now.start)}-${sec(now.end)}s. ${after(d)}` };
+    },
+  },
+  {
+    name: 'freeze_frame',
+    description: 'Hold the frame at a moment of the main track for a while: the clip is split there and a still of that frame goes between the halves (framed and graded like the clip); everything after moves along. For a punchline, a reveal, a face to put text on, or a "wait for it".',
+    schema: obj({ at: N('Timeline seconds of the frame to hold.'), duration: N('Seconds to hold, default 2.') }, ['at']),
+    label: (a) => `Freezing the frame at ${sec(num(a.at, 'at'))}s`,
+    run: async (ctx, a) => {
+      const v = view(ctx.p);
+      const at = num(a.at, 'at');
+      const seg = layoutMain(v.doc).find((s) => at >= s.start - 1e-6 && at < s.end - 1e-6);
+      if (!seg || seg.clip.kind !== 'media') bad(`There is no main clip at ${sec(at)}s.`);
+      const media = ctx.p.media.get(seg.clip.mediaId);
+      if (!media || media.kind !== 'video') bad('Only video frames can be frozen.');
+      const duration = clamp(optNum(a.duration, 'duration') ?? 2, 1 / v.doc.settings.fps, 30);
+      const still = await extractStill(ctx.p, media, sourceAt(seg.clip, at - seg.start));
+      const d = ops.freezeFrame(ctx.p.doc, at, still, duration);
+      save(ctx, d, 'freeze_frame', `Froze ${sec(at)}s for ${duration}s`);
+      return { text: `Held the frame at ${sec(at)}s for ${duration}s (still ${still.id}). ${after(d)} ${shifted}` };
     },
   },
   {
