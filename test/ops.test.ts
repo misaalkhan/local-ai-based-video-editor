@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {
   addMarker,
   rollCut,
+  groupSequence,
+  placeSequenceMedia,
+  expandSequence,
   addAudio,
   addGraphic,
   addOverlay,
@@ -609,4 +612,36 @@ test('markers follow cuts and the roll edit trades footage between neighbours', 
   const tight = insertMain(createDoc('p', 'T'), { kind: 'media', ...makeClip(broll, 30, { in: 0, duration: 8 }) });
   const t2 = insertMain(tight, { kind: 'media', ...makeClip(talk, 30, { in: 0, duration: 2 }) });
   assert.equal(rollCut(t2, 0, 1, () => 8), t2);
+});
+
+test('a sequence groups clips and what sits over them, takes a render, and expands back', () => {
+  let d = base();
+  d = insertMain(d, { kind: 'media', ...makeClip(broll, 30, { in: 1, duration: 2 }) });
+  d = insertMain(d, { kind: 'media', ...makeClip(broll, 30, { in: 4, duration: 3 }) });
+  d = addGraphic(d, { preset: 'title', props: { text: 'T' }, start: 20.5, duration: 1 }).doc;
+  d = addGraphic(d, { preset: 'title', props: { text: 'outside' }, start: 1, duration: 1 }).doc;
+  const r = groupSequence(d, 1, 2, 'Pair');
+  assert.equal(r.doc.main.length, 2);
+  assert.equal(r.clip.kind, 'color');
+  near((r.clip as { duration: number }).duration, 5);
+  assert.equal(r.sequence.main.length, 2);
+  assert.equal(r.sequence.graphics.length, 1);
+  near(r.sequence.graphics[0].start, 0.5);
+  assert.equal(r.doc.graphics.length, 1);
+  near(mainDuration(r.doc), 25);
+  // The render arrives: the stand-in becomes a media clip of the same length.
+  const placed = placeSequenceMedia(r.doc, r.sequence.id, { id: 'seqvid', kind: 'video', duration: 5 });
+  const clip = placed.main[1] as MediaMainClip;
+  assert.equal(clip.kind, 'media');
+  assert.equal(clip.mediaId, 'seqvid');
+  assert.equal(clip.sequenceId, r.sequence.id);
+  near(mainDuration(placed), 25);
+  assert.equal(placed.sequences![0].bakedRev, 1);
+  // Expanding puts the clips and the title back where they were.
+  const back = expandSequence(placed, clip.id);
+  assert.equal(back.main.length, 3);
+  assert.equal(back.sequences, undefined);
+  assert.equal(back.graphics.length, 2);
+  near(back.graphics.find((g) => g.props.text === 'T')!.start, 20.5);
+  near(mainDuration(back), 25);
 });

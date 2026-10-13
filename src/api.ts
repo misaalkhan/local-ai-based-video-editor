@@ -180,6 +180,7 @@ export const api = {
   removeLut: (name: string) => request('DELETE', `/api/library/luts/${encodeURIComponent(name)}`),
   memeTemplates: (q: string) => request<{ templates: MemeTemplate[] }>('GET', `/api/memes/templates?q=${encodeURIComponent(q)}`).then((r) => r.templates),
   addMeme: (projectId: ID, id: string) => request<{ media: MediaAsset; template: MemeTemplate }>('POST', `/api/projects/${projectId}/memes`, { id }),
+  bakeSequence: (projectId: ID, sequenceId: ID) => request<{ media: MediaAsset }>('POST', `/api/projects/${projectId}/sequences/${sequenceId}/bake`),
   still: (projectId: ID, mediaId: ID, time: number) => request<MediaAsset>('POST', `/api/projects/${projectId}/stills`, { mediaId, time }),
 };
 

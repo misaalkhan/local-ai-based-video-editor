@@ -12,6 +12,7 @@ import { DEFAULT_FRAMING, clamp, contentDuration, layoutMain, snap, sourceAt, sr
 import { extractStill } from '../stills.ts';
 import { analyzeStability } from '../stabilize.ts';
 import { trackObject } from '../objects.ts';
+import { bakeSequence } from '../sequences.ts';
 import { AUDIO_PRESETS } from '../../shared/audiofx.ts';
 import { getObjectTracks } from '../store.ts';
 import { clipGeometry, framingAt, segAt, sourceAt as sourceTimeAt } from '../../shared/timeline.ts';
@@ -1025,6 +1026,41 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       d = ops.setKeyframes(d, it.kind as 'overlay' | 'graphic', it.id, kfs);
       save(ctx, d, 'add_keyframes', `Animated ${it.id}`);
       return { text: `Set ${kfs.length} keyframes on ${it.kind} ${it.id}.` };
+    },
+  },
+  {
+    name: 'group_sequence',
+    description: 'Group a run of main segments (and the b-roll, text, punch-ins and sound that sit over them) into one nested sequence: it is rendered once and then sits on the main track as a single clip, so speed, a transition, a mask, a grade or a freeze can apply to the whole group. Rendering takes a few seconds per ten seconds of footage. Expand it again with expand_sequence to change what is inside.',
+    schema: obj({ from_clip_id: S('The first main segment of the run.'), to_clip_id: S('The last one (default: the next segment).'), name: S('A name for the sequence.') }, ['from_clip_id']),
+    label: (a) => `Grouping into ${str(a.name) || 'a sequence'}`,
+    run: async (ctx, a) => {
+      const v = view(ctx.p);
+      const from = findItem(v, a.from_clip_id);
+      if (from.kind !== 'main') bad('Only main segments can be grouped.');
+      const layout = layoutMain(v.doc);
+      const i0 = layout.findIndex((s) => s.clip.id === from.id);
+      const i1 = a.to_clip_id ? layout.findIndex((s) => s.clip.id === findItem(v, a.to_clip_id).id) : i0 + 1;
+      if (i1 < 0 || i1 >= layout.length) bad('The last segment was not found.');
+      if (i1 <= i0) bad('to_clip_id must come after from_clip_id.');
+      const r = ops.groupSequence(v.doc, i0, i1, a.name !== undefined ? str(a.name) : undefined);
+      save(ctx, r.doc, 'group_sequence', `Grouped ${i1 - i0 + 1} segments into "${r.sequence.name}"`);
+      const media = await bakeSequence(ctx.p, r.sequence.id);
+      return { text: `"${r.sequence.name}" (${sec(media.duration)}s) now stands in for segments ${i0 + 1}-${i1 + 1} as main clip ${r.clip.id}, rendered as file ${media.name}. ${shifted}` };
+    },
+  },
+  {
+    name: 'expand_sequence',
+    description: 'Unpack a nested sequence back into its clips where it sits, to change what is inside (then group_sequence again).',
+    schema: obj({ clip_id: S('The main clip that stands for the sequence.') }, ['clip_id']),
+    label: () => 'Expanding a sequence',
+    run: (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.clip_id);
+      const clip = v.doc.main.find((c) => c.id === it.id);
+      if (!clip?.sequenceId) bad('That clip is not a sequence.');
+      const d = ops.expandSequence(v.doc, clip.id);
+      save(ctx, d, 'expand_sequence', `Expanded ${clip.name ?? 'the sequence'}`);
+      return { text: `Expanded the sequence back into its clips. ${after(d)} ${shifted}` };
     },
   },
   {

@@ -180,6 +180,8 @@ export interface MotionKeyframe {
 export interface MediaMainClip extends SourceClip {
   kind: 'media';
   transition?: Transition;
+  /** This clip stands for a nested sequence (its rendered picture). */
+  sequenceId?: ID;
 }
 
 /** A solid colour on the main track, used behind title cards. */
@@ -192,6 +194,27 @@ export interface ColorMainClip extends ItemMeta {
   /** A moving background instead of a flat colour, drawn from `color` and `accent`. */
   animated?: CardAnimation;
   accent?: string;
+  /** A placeholder for a nested sequence that is still being rendered. */
+  sequenceId?: ID;
+}
+
+/**
+ * A nested sequence (compound clip): clips grouped into one. It is rendered
+ * into a video of its own, which then sits on the main track like any clip,
+ * so every effect applies to the group as a whole.
+ */
+export interface Sequence {
+  id: ID;
+  name: string;
+  main: MainClip[];
+  overlays: OverlayClip[];
+  audio: AudioClip[];
+  graphics: GraphicItem[];
+  zooms: ZoomItem[];
+  /** The rendered file's media, once baked, and the revision it was baked from. */
+  mediaId?: ID;
+  rev: number;
+  bakedRev?: number;
 }
 
 export type CardAnimation = 'flow' | 'aurora' | 'rays' | 'bokeh' | 'grid';
@@ -406,6 +429,8 @@ export interface ProjectDoc {
   takes: TakeGroup[];
   /** Named moments on the ruler: notes to self, cues for the assistant, snap points. */
   markers?: Marker[];
+  /** Nested sequences (compound clips) and what is in them. */
+  sequences?: Sequence[];
 }
 
 export interface Marker {
@@ -472,7 +497,7 @@ export interface MediaAsset {
   /** Share of the audio that is above the noise floor, 0..1. */
   soundRatio?: number;
   /** Where the file came from when it was not added by the user. */
-  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme' | 'still';
+  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme' | 'still' | 'sequence';
   /** How many different voices were heard, when speaker labels are available. */
   speakers?: number;
   /** Short handle the chat agent uses for this file's words ("a", "b", ...). */

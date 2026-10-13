@@ -12,6 +12,7 @@ import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
 import type { FoundSound } from '../sounds.ts';
 import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
 import { extractStill } from '../stills.ts';
+import { bakeSequence } from '../sequences.ts';
 import { AUDIO_EXT, extOf } from '../probe.ts';
 
 export function register(r: Router): void {
@@ -129,6 +130,16 @@ export function register(r: Router): void {
     if (!t) throw new HttpError(404, 'no such template');
     try {
       c.json({ media: await fetchMeme(p, t), template: t }, 201);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+  });
+
+  /** Render a nested sequence into its own clip (again, after changes). */
+  r.post('/api/projects/:pid/sequences/:sid/bake', async (c) => {
+    const p = getProject(c.params.pid);
+    try {
+      c.json({ media: await bakeSequence(p, c.params.sid) }, 201);
     } catch (err) {
       throw new HttpError(400, (err as Error).message);
     }

@@ -15,7 +15,7 @@ import { FONT_FAMILIES, FONT_NOTES, nearestWeight, weightsOf } from '../../share
 import { defaultColor } from '../../shared/graphics.ts';
 import { formatTime, srcDuration } from '../../shared/timeline.ts';
 import { Icon } from '../icons.tsx';
-import { fail, setUi, toast, useDerived, useDoc, useStore } from '../store.ts';
+import { fail, saved, select, setUi, toast, useDerived, useDoc, useStore } from '../store.ts';
 import { commit, deleteSelection, duplicateSelection, edit, live, mediaDur, runTool } from '../actions.ts';
 import { Button, ColorInput, Empty, Field, Section, Segmented, Select, Slider, TextInput, Toggle } from '../ui.tsx';
 
@@ -172,6 +172,76 @@ function MarkerList() {
 }
 
 const dbFmt = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
+
+const GROUP_COUNTS = [2, 3, 4, 5, 6, 8, 10].map((n) => ({ value: String(n), label: `This and the next ${n - 1}` }));
+
+/** Group main clips into a nested sequence, or unpack one. */
+function SequenceSection({ clip }: { clip: MainClip }) {
+  const doc = useDoc()!;
+  const projectId = useStore((s) => s.projectId)!;
+  const [count, setCount] = useState('2');
+  const [busy, setBusy] = useState(false);
+  const index = doc.main.findIndex((c) => c.id === clip.id);
+  const seq = clip.sequenceId ? doc.sequences?.find((s) => s.id === clip.sequenceId) : undefined;
+  const bake = async (sid: string) => {
+    setBusy(true);
+    try {
+      await saved();
+      await api.bakeSequence(projectId, sid);
+      toast('The sequence is rendered and in place.', 'success');
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const group = () => {
+    const n = Number(count);
+    const to = Math.min(doc.main.length - 1, index + n - 1);
+    if (to <= index) return toast('Nothing after this clip to group with.');
+    let sid = '';
+    edit((d) => {
+      const r = ops.groupSequence(d, index, to);
+      sid = r.sequence.id;
+      queueMicrotask(() => select({ kind: 'main', id: r.clip.id }));
+      return r.doc;
+    }, 'Group into a sequence');
+    if (sid) void bake(sid);
+  };
+  if (seq) {
+    const stale = seq.bakedRev !== seq.rev || !seq.mediaId;
+    return (
+      <Section title="Sequence">
+        <div className="hint">
+          "{seq.name}": {seq.main.length} clip{seq.main.length === 1 ? '' : 's'}{seq.overlays.length + seq.graphics.length + seq.zooms.length + seq.audio.length ? ` and ${seq.overlays.length + seq.graphics.length + seq.zooms.length + seq.audio.length} items` : ''} inside.{' '}
+          {clip.kind === 'color' ? 'Rendering…' : 'Effects, speed and colour on this clip apply to the whole group. Expand it to change what is inside, then group again.'}
+        </div>
+        <div className="row wrap">
+          <Button size="sm" onClick={() => edit((d) => ops.expandSequence(d, clip.id), 'Expand sequence')} disabled={busy}>
+            Expand
+          </Button>
+          {(stale || clip.kind === 'media') && (
+            <Button size="sm" variant="ghost" onClick={() => void bake(seq.id)} disabled={busy}>
+              {busy ? 'Rendering…' : 'Render again'}
+            </Button>
+          )}
+        </div>
+      </Section>
+    );
+  }
+  if (index < 0 || index >= doc.main.length - 1) return null;
+  return (
+    <Section title="Sequence">
+      <div className="row">
+        <Select value={count} options={GROUP_COUNTS.filter((o) => Number(o.value) <= doc.main.length - index)} onChange={setCount} />
+        <Button size="sm" icon="layers" onClick={group} disabled={busy}>
+          {busy ? 'Rendering…' : 'Group'}
+        </Button>
+      </div>
+      <div className="hint">A sequence turns several clips (and what sits over them) into one clip, rendered once, so you can speed it up, grade it, mask it or transition into it as a whole.</div>
+    </Section>
+  );
+}
 
 /** Equaliser and compression on a clip's sound. */
 function ToneControls({ clip, set, now, done }: { clip: SourceClip; set: (p: Partial<SourceClip>) => void; now: (p: Partial<SourceClip>, label: string) => void; done: (label: string) => () => void }) {
@@ -929,8 +999,8 @@ export function EditPanel() {
     if (z) body = <ZoomEditor z={z} />;
   } else if (sel?.kind === 'main') {
     const c = doc.main.find((x) => x.id === sel.id);
-    if (c?.kind === 'media') body = <ClipEditor kind="main" clip={c} />;
-    else if (c) body = <CardEditor clip={c} />;
+    if (c?.kind === 'media') body = <><ClipEditor kind="main" clip={c} /><SequenceSection clip={c} /></>;
+    else if (c) body = <><CardEditor clip={c} /><SequenceSection clip={c} /></>;
   } else if (sel?.kind === 'overlay') {
     const c = doc.overlays.find((x) => x.id === sel.id);
     if (c) body = <ClipEditor kind="overlay" clip={c} />;

@@ -145,6 +145,7 @@ function buildRows(doc: ProjectDoc, d: NonNullable<ReturnType<typeof useDerived>
         : {
             kind: 'main' as const, id: seg.clip.id, start: seg.start, end: seg.end, label: name(seg.clip.mediaId, seg.clip.name), tone: 'main',
             mediaId: seg.clip.mediaId, inT: seg.clip.in, speed: seg.clip.speed, volume: seg.clip.volume, muted: seg.clip.muted, ...remap(seg.clip),
+            ...(seg.clip.sequenceId ? { badge: ['sequence', remap(seg.clip).badge].filter(Boolean).join(' ') } : {}),
             transition: !!seg.clip.transition && seg.index > 0,
             keys: [...(seg.clip.motion ?? []).map((k) => k.t), ...rampKeys(seg.clip)],
             roll: seg.index < d.layout.length - 1,

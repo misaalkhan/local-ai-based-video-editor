@@ -34,6 +34,7 @@ import type {
   SpeedKeyframe,
   CardAnimation,
   Marker,
+  Sequence,
 } from './types.ts';
 import { ASPECTS } from './types.ts';
 import {
@@ -844,6 +845,92 @@ export function updateClip(
 }
 
 // ---------------------------------------------------------------------------
+// Sequences (compound clips)
+
+/**
+ * Group main clips `from`..`to` (indices) and everything timed that lies
+ * within them into a nested sequence. A colour card of the same length
+ * stands in until the sequence is rendered.
+ */
+export function groupSequence(doc: ProjectDoc, from: number, to: number, name?: string): { doc: ProjectDoc; sequence: Sequence; clip: MainClip } {
+  const d = cloneDoc(doc);
+  const fps = d.settings.fps;
+  const layout = layoutMain(d);
+  const a = clamp(Math.min(from, to), 0, d.main.length - 1);
+  const b = clamp(Math.max(from, to), 0, d.main.length - 1);
+  const start = layout[a].start;
+  const end = layout[b].end;
+  const inside = (s: number, e: number) => s >= start - EPS && e <= end + EPS;
+  const shift = <T extends { start: number }>(x: T): T => ({ ...x, start: snap(x.start - start, fps) });
+  const sequence: Sequence = {
+    id: uid('q'),
+    name: name || `Sequence ${(d.sequences?.length ?? 0) + 1}`,
+    main: d.main.slice(a, b + 1).map((c) => ({ ...c })),
+    overlays: d.overlays.filter((o) => inside(o.start, o.start + srcDuration(o))).map(shift),
+    audio: d.audio.filter((x) => x.role !== 'music' && inside(x.start, x.start + srcDuration(x))).map(shift),
+    graphics: d.graphics.filter((g) => inside(g.start, g.start + g.duration)).map(shift),
+    zooms: d.zooms.filter((z) => inside(z.start, z.start + z.duration)).map(shift),
+    rev: 1,
+  };
+  const taken = new Set<ID>([...sequence.overlays, ...sequence.audio, ...sequence.graphics, ...sequence.zooms].map((x) => x.id));
+  d.overlays = d.overlays.filter((o) => !taken.has(o.id));
+  d.audio = d.audio.filter((x) => !taken.has(x.id));
+  d.graphics = d.graphics.filter((g) => !taken.has(g.id));
+  d.zooms = d.zooms.filter((z) => !taken.has(z.id));
+  // The first clip's transition into the group stays on the stand-in.
+  const first = d.main[a];
+  const clip: MainClip = { kind: 'color', id: uid(), duration: snap(end - start, fps), color: '#1a1a22', name: sequence.name, sequenceId: sequence.id, ...(first.transition ? { transition: first.transition } : {}) };
+  d.main.splice(a, b - a + 1, clip);
+  d.sequences = [...(d.sequences ?? []), sequence];
+  return { doc: d, sequence, clip };
+}
+
+/** Put a sequence's rendered video in place of its stand-in (or its earlier render). */
+export function placeSequenceMedia(doc: ProjectDoc, sequenceId: ID, media: MediaLike): ProjectDoc {
+  const d = cloneDoc(doc);
+  const fps = d.settings.fps;
+  const i = d.main.findIndex((c) => c.sequenceId === sequenceId);
+  const seq = d.sequences?.find((s) => s.id === sequenceId);
+  if (i < 0 || !seq) return doc;
+  const old = d.main[i];
+  const keep = old.kind === 'media' ? { fx: old.fx, framing: old.framing, motion: old.motion, speed: old.speed, ramp: old.ramp, reverse: old.reverse, volume: old.volume, muted: old.muted, audioFx: old.audioFx, volumeKeys: old.volumeKeys } : {};
+  const clip: MediaMainClip = fitClip(
+    { kind: 'media', id: old.id, mediaId: media.id, in: 0, out: Math.max(1 / fps, media.duration), speed: 1, volume: 1, name: old.name ?? seq.name, sequenceId, ...(old.transition ? { transition: old.transition } : {}), ...keep },
+    fps,
+    media.duration,
+  );
+  d.main[i] = clip;
+  seq.mediaId = media.id;
+  seq.bakedRev = seq.rev;
+  return d;
+}
+
+/** Unpack a sequence back into the timeline where its clip sits. */
+export function expandSequence(doc: ProjectDoc, clipId: ID): ProjectDoc {
+  const d = cloneDoc(doc);
+  const layout = layoutMain(d);
+  const seg = layout.find((s) => s.clip.id === clipId);
+  const seq = seg && d.sequences?.find((s) => s.id === seg.clip.sequenceId);
+  if (!seg || !seq) return doc;
+  const start = seg.start;
+  const fps = d.settings.fps;
+  const unshift = <T extends { start: number }>(x: T): T => ({ ...x, start: snap(x.start + start, fps) });
+  const main = seq.main.map((c, i) => (i === 0 && seg.clip.transition ? { ...c, transition: seg.clip.transition } : c));
+  d.main.splice(seg.index, 1, ...main);
+  d.overlays = [...d.overlays, ...seq.overlays.map(unshift)];
+  d.audio = [...d.audio, ...seq.audio.map(unshift)];
+  d.graphics = [...d.graphics, ...seq.graphics.map(unshift)];
+  d.zooms = [...d.zooms, ...seq.zooms.map(unshift)];
+  d.sequences = (d.sequences ?? []).filter((s) => s.id !== seq.id);
+  if (!d.sequences.length) delete d.sequences;
+  // The group's length may differ from its render by a frame; keep what follows where it was.
+  const after = layoutMain(d);
+  const delta = after[seg.index + main.length - 1].end - seg.end;
+  if (Math.abs(delta) > EPS) shiftTimed(d, seg.end, delta);
+  return d;
+}
+
+// ---------------------------------------------------------------------------
 // Markers
 
 /** Add a marker at `t`, or rename the one already within a frame of it. */
@@ -1549,6 +1636,8 @@ export function sanitizeDoc(doc: ProjectDoc, hasMedia?: (id: ID) => boolean): Pr
         : { follow: undefined }),
     }));
   d.zooms = (d.zooms ?? []).filter((z) => z.duration > 0 && z.scale > 0);
+  d.sequences = (d.sequences ?? []).filter((s) => s && typeof s === 'object' && typeof s.id === 'string' && Array.isArray(s.main)).map((s) => ({ ...s, overlays: s.overlays ?? [], audio: s.audio ?? [], graphics: s.graphics ?? [], zooms: s.zooms ?? [], rev: typeof s.rev === 'number' ? s.rev : 1 }));
+  if (!d.sequences.length) delete d.sequences;
   const markers = (d.markers ?? []).filter((m) => m && typeof m === 'object' && Number.isFinite(m.t) && m.t >= 0).map((m) => ({ id: typeof m.id === 'string' && m.id ? m.id : uid('k'), t: snap(m.t, fps), label: typeof m.label === 'string' ? m.label : '', ...(typeof m.color === 'string' && m.color ? { color: m.color } : {}) }));
   if (markers.length) d.markers = markers.sort((a, b) => a.t - b.t);
   else delete d.markers;

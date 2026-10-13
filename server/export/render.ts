@@ -22,6 +22,14 @@ export interface ExportOptions {
 interface Running {
   job: ExportJob;
   controller: AbortController;
+  /** Settles when the job has finished, however it ended. */
+  done: Promise<ExportJob>;
+}
+
+/** Where a render goes: the user's export folder by default, or a fixed file (sequences baked into the project). */
+export interface RenderTarget {
+  doc?: ProjectDoc;
+  dest?: string;
 }
 
 const jobs = new Map<string, Running>();
@@ -56,11 +64,16 @@ function writeFrame(stream: NodeJS.WritableStream, frame: Buffer): Promise<void>
   });
 }
 
-export function startExport(p: Project, opts: ExportOptions): ExportJob {
+/** Resolves when an export job has finished (done, failed or cancelled). */
+export function exportDone(id: string): Promise<ExportJob> | undefined {
+  return jobs.get(id)?.done;
+}
+
+export function startExport(p: Project, opts: ExportOptions, target: RenderTarget = {}): ExportJob {
   for (const r of jobs.values()) {
     if (r.job.projectId === p.id && r.job.status === 'running') throw new Error('An export is already running for this project.');
   }
-  const doc: ProjectDoc = structuredClone(p.doc);
+  const doc: ProjectDoc = structuredClone(target.doc ?? p.doc);
   doc.settings.width = even(opts.width ?? doc.settings.width);
   doc.settings.height = even(opts.height ?? doc.settings.height);
   const duration = contentDuration(doc);
@@ -78,7 +91,9 @@ export function startExport(p: Project, opts: ExportOptions): ExportJob {
     startedAt: Date.now(),
   };
   const controller = new AbortController();
-  jobs.set(job.id, { job, controller });
+  let settle: (j: ExportJob) => void = () => {};
+  const done = new Promise<ExportJob>((r) => (settle = r));
+  jobs.set(job.id, { job, controller, done });
   let lastSent = 0;
   const update = (patch: Partial<ExportJob>, force = false) => {
     Object.assign(job, patch);
@@ -88,16 +103,18 @@ export function startExport(p: Project, opts: ExportOptions): ExportJob {
       emit(p, 'export', { ...job });
     }
   };
-  void runExport(p, doc, job, opts.quality ?? 'high', controller.signal, update).then(
-    () => update({ status: 'done', progress: 1, stage: 'Done', finishedAt: Date.now() }, true),
-    (err: Error) => {
-      if (controller.signal.aborted) update({ status: 'cancelled', stage: 'Cancelled', finishedAt: Date.now() }, true);
-      else {
-        console.error('[export] failed:', err);
-        update({ status: 'error', stage: 'Failed', error: err.message.split('\n').slice(-2).join(' '), finishedAt: Date.now() }, true);
-      }
-    },
-  );
+  void runExport(p, doc, job, opts.quality ?? 'high', controller.signal, update, target.dest)
+    .then(
+      () => update({ status: 'done', progress: 1, stage: 'Done', finishedAt: Date.now() }, true),
+      (err: Error) => {
+        if (controller.signal.aborted) update({ status: 'cancelled', stage: 'Cancelled', finishedAt: Date.now() }, true);
+        else {
+          console.error('[export] failed:', err);
+          update({ status: 'error', stage: 'Failed', error: err.message.split('\n').slice(-2).join(' '), finishedAt: Date.now() }, true);
+        }
+      },
+    )
+    .finally(() => settle(job));
   return job;
 }
 
@@ -108,6 +125,7 @@ async function runExport(
   quality: 'high' | 'standard' | 'small',
   signal: AbortSignal,
   update: (patch: Partial<ExportJob>, force?: boolean) => void,
+  fixedDest?: string,
 ): Promise<void> {
   const work = path.join(p.dir, 'tmp', job.id);
   fs.mkdirSync(work, { recursive: true });
@@ -169,9 +187,9 @@ async function runExport(
       signal.removeEventListener('abort', onAbort);
     }
     if (signal.aborted) throw new Error('aborted');
-    const dir = getSettings().exportDir.trim() || EXPORT_DIR;
+    const dir = fixedDest ? path.dirname(fixedDest) : getSettings().exportDir.trim() || EXPORT_DIR;
     fs.mkdirSync(dir, { recursive: true });
-    const dest = uniquePath(dir, p.doc.name);
+    const dest = fixedDest ?? uniquePath(dir, p.doc.name);
     try {
       fs.renameSync(tmpOut, dest);
     } catch {

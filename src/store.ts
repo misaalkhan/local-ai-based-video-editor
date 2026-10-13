@@ -198,6 +198,19 @@ function scheduleSave(label?: string): void {
   saveTimer = setTimeout(flushSave, 200);
 }
 
+/** Resolves once every pending change has reached the server (for requests that need the server's copy up to date). */
+export async function saved(): Promise<void> {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  await flushSave();
+  while (saving || dirty) {
+    await new Promise((r) => setTimeout(r, 50));
+    if (!saving && dirty) await flushSave();
+  }
+}
+
 async function flushSave(): Promise<void> {
   if (saving || !dirty) return;
   const s = get();

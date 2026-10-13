@@ -460,6 +460,7 @@ export function describeTimeline(p: Project): string {
       cl.reverse ? 'reversed' : '',
       cl.fx?.stabilize ? `stabilised ${Math.round(cl.fx.stabilize * 100)}%` : '',
       cl.audioFx?.preset ? `sound ${cl.audioFx.preset}` : '',
+      cl.sequenceId ? `nested sequence (expand_sequence to open)` : '',
       cl.volumeKeys?.length ? `volume points ${cl.volumeKeys.length}` : '',
       cl.interpolate && (cl.ramp?.length ? cl.ramp.some((k) => k.speed < 1) : cl.speed < 1) ? `${cl.interpolate} slow motion` : '',
       cl.muted ? 'muted' : cl.volume !== 1 ? `volume ${gainToDb(cl.volume).toFixed(0)} dB` : '',

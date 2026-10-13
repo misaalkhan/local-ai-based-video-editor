@@ -120,7 +120,7 @@ export async function importMedia(
     addedAt: Date.now(),
     proxy: 'pending',
     analysis: info.hasAudio ? 'pending' : 'skipped',
-    transcript: info.hasAudio && opts.origin !== 'sfx' ? 'pending' : 'skipped',
+    transcript: info.hasAudio && opts.origin !== 'sfx' && opts.origin !== 'sequence' ? 'pending' : 'skipped',
     rev: 1,
     tag: nextTag(p),
   };
