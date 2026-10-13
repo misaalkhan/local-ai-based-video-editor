@@ -9,7 +9,7 @@ import { clamp, formatTime, isRemapped, layoutMain, localAt, snap, sourceAt, src
 import * as ops from '../../shared/ops.ts';
 import { displayWord } from '../../shared/captions.ts';
 import { player } from '../engine/player.ts';
-import { getPeaks, getStrip, onAssetLoaded } from '../engine/assets.ts';
+import { getBeats, getPeaks, getStrip, onAssetLoaded } from '../engine/assets.ts';
 import { usePlayerFrame, usePlayerTime, usePlaying } from '../hooks.ts';
 import { agentBusy, commitDraft, select, setDraft, setUi, useDerived, useDoc, useStore } from '../store.ts';
 import { currentDrag, deleteSelection, dropOnTimeline, dropRow, duplicateSelection, edit, mediaDur, runTool, splitAtPlayhead } from '../actions.ts';
@@ -44,6 +44,18 @@ interface Item {
   /** The clip itself when its time runs unevenly or backwards (a speed ramp, reverse). */
   clip?: SourceClip;
   badge?: string;
+  /** Beat times of a music clip, seconds after it starts. */
+  beats?: number[];
+}
+
+/** Timeline positions (seconds after the item starts) of the beats inside a music clip. */
+function beatTimes(a: ProjectDoc['audio'][number]): number[] | undefined {
+  const { projectId, media } = useStore.getState();
+  const m = projectId ? media[a.mediaId] : undefined;
+  const b = m && projectId ? getBeats(projectId, m) : null;
+  if (!b || !b.times.length) return undefined;
+  const len = srcDuration(a);
+  return b.times.filter((t) => t >= a.in && t <= a.out).map((t) => localAt(a, t)).filter((t) => t >= 0 && t <= len);
 }
 
 /** Timeline positions of a clip's speed-ramp points. */
@@ -139,7 +151,9 @@ function buildRows(doc: ProjectDoc, d: NonNullable<ReturnType<typeof useDerived>
 
   const audioItem = (a: ProjectDoc['audio'][number]): Item => ({
     kind: 'audio', id: a.id, start: a.start, end: Math.min(a.start + srcDuration(a), a.role === 'music' ? Math.max(d.duration, a.start + 0.5) : Infinity),
-    label: name(a.mediaId, a.name), tone: a.role, mediaId: a.mediaId, inT: a.in, speed: a.speed, volume: a.volume, muted: a.muted,
+    label: name(a.mediaId, a.name), tone: a.role, mediaId: a.mediaId, inT: a.in, speed: a.speed, volume: a.volume, muted: a.muted, ...remap(a),
+    keys: a.volumeKeys?.map((k) => k.t),
+    beats: a.role === 'music' ? beatTimes(a) : undefined,
   });
   pack(doc.audio.filter((a) => a.role !== 'music').map(audioItem)).forEach((items, i) => rows.push({ key: `a${i}`, kind: 'audio', label: `Audio ${i + 1}`, icon: 'mic', items }));
   pack(doc.audio.filter((a) => a.role === 'music').map(audioItem)).forEach((items, i, all) => rows.push({ key: `m${i}`, kind: 'music', label: all.length > 1 ? `Music ${i + 1}` : 'Music', icon: 'music', items }));
@@ -271,7 +285,10 @@ export function Timeline() {
   /** Where something dragged from a side panel would land. */
   const [drop, setDrop] = useState<{ time: number; row: string } | null>(null);
 
-  const rows = useMemo(() => buildRows(doc, derived, media), [doc, derived, media]);
+  const [assetTick, setAssetTick] = useState(0);
+  useEffect(() => onAssetLoaded(() => setAssetTick((n) => n + 1)), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => buildRows(doc, derived, media), [doc, derived, media, assetTick]);
   const total = Math.max(derived.duration + 8, (view.width - LABEL_W) / pps);
   const contentW = total * pps;
 
@@ -417,7 +434,12 @@ export function Timeline() {
     const points: number[] = [0, player.time];
     for (const s of layoutMain(origin)) if (s.clip.id !== item.id) points.push(s.start, s.end);
     for (const o of origin.overlays) if (o.id !== item.id) points.push(o.start, o.start + srcDuration(o));
-    for (const a of origin.audio) if (a.id !== item.id) points.push(a.start, a.start + srcDuration(a));
+    for (const a of origin.audio) {
+      if (a.id === item.id) continue;
+      points.push(a.start, a.start + srcDuration(a));
+      // The beats of the music, so cuts and effects can land on them.
+      if (a.role === 'music') for (const t of beatTimes(a) ?? []) points.push(a.start + t);
+    }
     for (const g of origin.graphics) if (g.id !== item.id) points.push(g.start, g.start + g.duration);
     for (const z of origin.zooms) if (z.id !== item.id) points.push(z.start, z.start + z.duration);
     const near = (t: number): number | null => {
@@ -530,6 +552,7 @@ export function Timeline() {
         {item.keys?.map((t, i) => (
           <span key={i} className="tl-key" style={{ left: Math.min(w - 4, Math.max(2, t * pps)) }} title={`Keyframe at ${t.toFixed(2)} s`} />
         ))}
+        {pps >= 24 && item.beats?.map((t, i) => <span key={`b${i}`} className="tl-beat" style={{ left: t * pps }} />)}
         <span className="tl-item-label">
           {item.muted && <Icon name="mute" size={11} />}
           {item.badge ? <b>{item.badge}</b> : item.speed !== undefined && item.speed !== 1 && <b>{item.speed.toFixed(2).replace(/0$/, '')}×</b>}

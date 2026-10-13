@@ -1,6 +1,7 @@
 // Filmstrips and waveforms for the timeline, fetched once per media file.
 
 import type { ID, MediaAsset } from '../../shared/types.ts';
+import type { Beats } from '../../shared/beats.ts';
 
 const strips = new Map<string, HTMLImageElement>();
 const peaks = new Map<string, { data: Uint8Array | null; max: number }>();
@@ -30,6 +31,24 @@ export function getStrip(projectId: ID, m: MediaAsset): HTMLImageElement | null 
 }
 
 /** Peak level per 10 ms (0..255) and the loudest value, for scaling the drawing. */
+const beats = new Map<string, Beats | null>();
+
+/** The beats of a music file (fetched once per media revision); null until they arrive. */
+export function getBeats(projectId: ID, m: MediaAsset): Beats | null {
+  if (m.analysis !== 'done' || !m.hasAudio) return null;
+  const key = `${m.id}:${m.rev}`;
+  if (beats.has(key)) return beats.get(key) ?? null;
+  beats.set(key, null);
+  fetch(`/api/projects/${projectId}/media/${m.id}/beats.json?r=${m.rev}`)
+    .then((r) => (r.ok ? (r.json() as Promise<Beats>) : Promise.reject(new Error(String(r.status)))))
+    .then((b) => {
+      beats.set(key, b);
+      notify();
+    })
+    .catch(() => beats.delete(key));
+  return null;
+}
+
 export function getPeaks(projectId: ID, m: MediaAsset): { data: Uint8Array; max: number } | null {
   if (m.analysis !== 'done') return null;
   const key = `${m.id}:${m.rev}`;

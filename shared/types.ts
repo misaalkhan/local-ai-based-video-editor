@@ -128,6 +128,10 @@ export interface SourceClip extends ItemMeta {
    * them and held before the first and after the last. Replaces `speed`.
    */
   ramp?: SpeedKeyframe[];
+  /** Tone and dynamics of the clip's sound. */
+  audioFx?: AudioFx;
+  /** Volume over the clip's life, as multipliers of `volume` at moments (seconds after the clip starts), changing evenly between them. */
+  volumeKeys?: VolumeKeyframe[];
   /** Play the source range backwards. */
   reverse?: boolean;
   /**
@@ -136,6 +140,24 @@ export interface SourceClip extends ItemMeta {
    * The preview always repeats frames.
    */
   interpolate?: 'blend' | 'flow';
+}
+
+export interface VolumeKeyframe {
+  t: number;
+  gain: number;
+}
+
+export type AudioPreset = 'voice' | 'podcast' | 'warm' | 'bright' | 'bass' | 'radio' | 'phone' | 'muffled' | 'big';
+
+/** Equaliser and compression on a clip's sound: a preset, then adjustments on top. */
+export interface AudioFx {
+  preset?: AudioPreset;
+  /** Shelves and a mid band, in dB (-12..12). */
+  low?: number;
+  mid?: number;
+  high?: number;
+  /** 0..1: how hard the levels are evened out. */
+  compress?: number;
 }
 
 /** The speed at a moment of the source file (seconds). */

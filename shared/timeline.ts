@@ -20,6 +20,7 @@ import type {
   MotionTrack,
   ObjectTrack,
   Follow,
+  VolumeKeyframe,
 } from './types.ts';
 
 export const EPS = 1e-6;
@@ -644,7 +645,7 @@ export function clipGainAt(
   const dur = srcDuration(clip);
   const local = t - clipStart;
   if (local < -EPS || local > dur + EPS) return 0;
-  let g = clip.volume * fadeFactor(local, dur, clip.fadeIn, clip.fadeOut);
+  let g = clip.volume * fadeFactor(local, dur, clip.fadeIn, clip.fadeOut) * volumeKeyAt(clip.volumeKeys, local);
   if (opts.music) {
     if (opts.duck) g *= 1 - (1 - DUCK_LEVEL) * duckAmountAt(opts.duck, t);
     if (opts.contentEnd !== undefined && clipStart + dur > opts.contentEnd + EPS) {
@@ -652,6 +653,20 @@ export function clipGainAt(
     }
   }
   return g;
+}
+
+/** The volume multiplier at `local` seconds from a clip's volume keyframes (1 without any). */
+export function volumeKeyAt(keys: VolumeKeyframe[] | undefined, local: number): number {
+  if (!keys || !keys.length) return 1;
+  let prev: VolumeKeyframe | undefined;
+  let next: VolumeKeyframe | undefined;
+  for (const k of keys) {
+    if (k.t <= local) {
+      if (!prev || k.t >= prev.t) prev = k;
+    } else if (!next || k.t < next.t) next = k;
+  }
+  if (prev && next) return prev.gain + ((next.gain - prev.gain) * (local - prev.t)) / Math.max(1e-6, next.t - prev.t);
+  return (prev ?? next)!.gain;
 }
 
 export function audioClipEnd(a: AudioClip): number {

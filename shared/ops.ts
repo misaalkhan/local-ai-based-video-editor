@@ -61,6 +61,8 @@ import type { TLWord } from './captions.ts';
 import { GRAPHIC_PRESETS } from './graphics.ts';
 
 export type MediaLike = Pick<MediaAsset, 'id' | 'kind' | 'duration'>;
+
+const AUDIO_PRESET_IDS: string[] = ['voice', 'podcast', 'warm', 'bright', 'bass', 'radio', 'phone', 'muffled', 'big'];
 export type TimedKind = Exclude<SelectionKind, 'main'>;
 
 export function uid(prefix = 'c'): string {
@@ -1444,6 +1446,18 @@ export function sanitizeDoc(doc: ProjectDoc, hasMedia?: (id: ID) => boolean): Pr
     else delete f.ramp;
     if (!c.reverse) delete f.reverse;
     if (c.interpolate !== 'blend' && c.interpolate !== 'flow') delete f.interpolate;
+    const keys = Array.isArray(c.volumeKeys) ? c.volumeKeys.filter((k) => k && Number.isFinite(k.t) && Number.isFinite(k.gain)).map((k) => ({ t: Math.max(0, k.t), gain: clamp(k.gain, 0, 4) })).sort((a, b) => a.t - b.t) : [];
+    if (keys.length) f.volumeKeys = keys;
+    else delete f.volumeKeys;
+    if (c.audioFx && typeof c.audioFx === 'object') {
+      const a = c.audioFx;
+      const fx: typeof a = {};
+      if (AUDIO_PRESET_IDS.includes(a.preset as string)) fx.preset = a.preset;
+      for (const key of ['low', 'mid', 'high'] as const) if (typeof a[key] === 'number' && a[key]) fx[key] = clamp(a[key]!, -12, 12);
+      if (typeof a.compress === 'number' && a.compress > 0) fx.compress = clamp(a.compress, 0, 1);
+      if (Object.keys(fx).length) f.audioFx = fx;
+      else delete f.audioFx;
+    } else delete f.audioFx;
     return f;
   };
   d.main = (d.main ?? []).filter((c) => (c.kind === 'color' ? c.duration > 0 : ok(c))).map((c) => (c.kind === 'color' ? c : fix(c)));

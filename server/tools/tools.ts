@@ -12,6 +12,7 @@ import { DEFAULT_FRAMING, clamp, contentDuration, layoutMain, snap, sourceAt, sr
 import { extractStill } from '../stills.ts';
 import { analyzeStability } from '../stabilize.ts';
 import { trackObject } from '../objects.ts';
+import { AUDIO_PRESETS } from '../../shared/audiofx.ts';
 import { getObjectTracks } from '../store.ts';
 import { clipGeometry, framingAt, segAt, sourceAt as sourceTimeAt } from '../../shared/timeline.ts';
 import { detectSilences } from '../../shared/silence.ts';
@@ -1024,6 +1025,92 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       d = ops.setKeyframes(d, it.kind as 'overlay' | 'graphic', it.id, kfs);
       save(ctx, d, 'add_keyframes', `Animated ${it.id}`);
       return { text: `Set ${kfs.length} keyframes on ${it.kind} ${it.id}.` };
+    },
+  },
+  {
+    name: 'set_audio_fx',
+    description: 'Tone and dynamics of a clip\'s sound (main, b-roll, music, voice or effect clips). Presets: voice (rumble out, presence up, light levelling: the default for talking), podcast (fuller, studio-like), warm, bright, bass (music low end), radio and phone (narrow, for a call or a broadcast gag), muffled (through a wall, behind a door, underwater), big (loud and dense, for a drop). Then bass/mids/treble in dB (-12..12) and compress 0-1 on top. Pass preset none to clear.',
+    schema: obj({ clip_id: S('A clip id.'), preset: S('Tone preset.', ['voice', 'podcast', 'warm', 'bright', 'bass', 'radio', 'phone', 'muffled', 'big', 'none']), bass: N('dB.'), mids: N('dB.'), treble: N('dB.'), compress: N('0-1.') }, ['clip_id']),
+    label: (a) => `Sound: ${str(a.preset) || 'tone'}`,
+    run: (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.clip_id);
+      if (it.kind === 'graphic' || it.kind === 'zoom') bad('Only clips with sound can be shaped.');
+      const clip = sourceClip(v.doc, it.kind as 'main' | 'overlay' | 'audio', it.id);
+      if (!clip) bad('No such clip.');
+      const fx: Record<string, unknown> = { ...(clip.audioFx ?? {}) };
+      if (a.preset !== undefined) {
+        const preset = str(a.preset);
+        if (preset === 'none') delete fx.preset;
+        else if (AUDIO_PRESETS.some((p) => p.id === preset)) fx.preset = preset;
+        else bad(`Unknown preset "${preset}".`);
+      }
+      for (const [key, name] of [['low', 'bass'], ['mid', 'mids'], ['high', 'treble']] as const) if (a[name] !== undefined) fx[key] = clamp(num(a[name], name), -12, 12) || undefined;
+      if (a.compress !== undefined) fx.compress = clamp(num(a.compress, 'compress'), 0, 1) || undefined;
+      const clean = Object.fromEntries(Object.entries(fx).filter(([, val]) => val !== undefined));
+      const d = ops.updateClip(v.doc, it.kind as 'main' | 'overlay' | 'audio', it.id, { audioFx: Object.keys(clean).length ? clean : undefined });
+      save(ctx, d, 'set_audio_fx', `Sound on ${it.id}`);
+      return { text: `${it.kind} clip ${it.id} sound: ${Object.keys(clean).length ? JSON.stringify(clean) : 'as recorded'}.` };
+    },
+  },
+  {
+    name: 'set_volume_keys',
+    description: 'Volume over a clip\'s life: points of {at: timeline seconds, gain: multiplier of the clip\'s volume} with straight ramps between them. Or a preset at a moment: dip (down to 25% for 0.3 s around `at`, back up: music under a spoken line or a sound effect), swell (up to 160% around `at`: the drop, the reveal), fade_under (down to 20% from `at` to the clip\'s end: music settling under the talking). Music already ducks under speech by itself; use this for moments, not whole clips. Pass clear to remove.',
+    schema: obj({ clip_id: S('A clip with sound.'), points: { type: 'array', description: 'Your own points.', items: obj({ at: N('Timeline seconds.'), gain: N('0-2, 1 = the clip\'s volume.') }, ['at', 'gain']) }, preset: S('A shape around `at`.', ['dip', 'swell', 'fade_under']), at: N('Timeline seconds for the preset.'), clear: B('Remove all points.') }, ['clip_id']),
+    label: (a) => (a.preset ? `Volume ${str(a.preset)}` : 'Volume points'),
+    run: (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.clip_id);
+      if (it.kind === 'graphic' || it.kind === 'zoom') bad('Only clips with sound have a volume.');
+      const kind = it.kind as 'main' | 'overlay' | 'audio';
+      const clip = sourceClip(v.doc, kind, it.id);
+      if (!clip) bad('No such clip.');
+      const fps = v.doc.settings.fps;
+      const length = srcDuration(clip);
+      const localOf = (tl: number) => clamp(tl - it.start, 0, length);
+      let keys = clip.volumeKeys ?? [];
+      if (a.clear) keys = [];
+      if (Array.isArray(a.points) && a.points.length) {
+        for (const pt of a.points as { at: unknown; gain: unknown }[]) keys = ops.upsertKeyframe(keys, { t: Math.round(localOf(num(pt.at, 'points.at')) * fps) / fps, gain: clamp(num(pt.gain, 'points.gain'), 0, 2) }, fps);
+      }
+      if (a.preset !== undefined) {
+        const preset = str(a.preset);
+        const at = localOf(a.at !== undefined ? num(a.at, 'at') : it.start + length / 2);
+        const put = (t: number, gain: number) => (keys = ops.upsertKeyframe(keys, { t: Math.round(clamp(t, 0, length) * fps) / fps, gain }, fps));
+        if (preset === 'dip' || preset === 'swell') {
+          const to = preset === 'dip' ? 0.25 : 1.6;
+          put(at - 0.5, 1);
+          put(at - 0.15, to);
+          put(at + 0.15, to);
+          put(at + 0.5, 1);
+        } else if (preset === 'fade_under') {
+          put(at, 1);
+          put(Math.min(length, at + 1), 0.2);
+        } else bad(`Unknown preset "${preset}".`);
+      }
+      const d = ops.updateClip(v.doc, kind, it.id, { volumeKeys: keys.length ? keys : undefined });
+      save(ctx, d, 'set_volume_keys', `Volume points on ${it.id}`);
+      return { text: keys.length ? `${it.id} volume: ${keys.map((k) => `${sec(it.start + k.t)}s ${Math.round(k.gain * 100)}%`).join(', ')}.` : `${it.id} has no volume points.` };
+    },
+  },
+  {
+    name: 'get_beats',
+    description: 'The beats of a music file (bpm and beat times in the file), to land cuts, effects, text and punch-ins on them. cut_to_beat uses them for a montage; this is for placing single things. Timeline time of a beat = music clip start + (beat time - its source start).',
+    schema: obj({ media: S('The music file (letter, id or name); default: the music on the timeline.'), from: N('First file second of interest.'), count: N('How many beats to list, default 32.') }, []),
+    label: () => 'Reading the beat',
+    run: async (ctx, a) => {
+      const d0 = ctx.p.doc;
+      const existing = d0.audio.find((x) => x.role === 'music');
+      const music = a.music ? await findMedia(ctx.p, a.music) : existing ? ctx.p.media.get(existing.mediaId) : undefined;
+      if (!music) bad('Which music? Give a file or add music first.');
+      const env = await envelopeSoon(ctx.p, music.id, ctx.signal);
+      if (!env) bad(`"${music.name}" could not be analysed for its beat.`);
+      const beats = findBeats(env);
+      const from = optNum(a.from, 'from') ?? 0;
+      const count = clamp(optNum(a.count, 'count') ?? 32, 1, 200);
+      const times = beats.times.filter((t) => t >= from).slice(0, count);
+      const placed = existing && existing.mediaId === music.id ? ` On the timeline (clip ${existing.id} at ${sec(existing.start)}s, source from ${sec(existing.in)}s): ${times.map((t) => sec(existing.start + (t - existing.in))).join(', ')}.` : '';
+      return { text: `"${music.name}": ${Math.round(beats.bpm)} bpm (confidence ${beats.confidence.toFixed(2)}). Beats in the file: ${times.map((t) => sec(t)).join(', ')}.${placed}` };
     },
   },
   {

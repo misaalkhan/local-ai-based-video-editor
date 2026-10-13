@@ -13,6 +13,7 @@ import { renderFrame } from '../../shared/draw.ts';
 import type { FrameProvider, LayerImage } from '../../shared/draw.ts';
 import type { Ctx2D, DrawableImage } from '../../shared/graphics.ts';
 import { clamp, clipGainAt, clipGeometry, isRemapped, segAt, sourceAt, speedAt, srcDuration, stabShift, transitionLength } from '../../shared/timeline.ts';
+import { audioFxKey, audioStages, compressorMakeup } from '../../shared/audiofx.ts';
 import type { MainSeg, VisualRef } from '../../shared/timeline.ts';
 import type { Derived } from '../store.ts';
 
@@ -29,6 +30,11 @@ export interface PlayerData {
 interface Slot {
   el: HTMLVideoElement | HTMLAudioElement;
   gain: GainNode | null;
+  /** The element's audio, before any tone chain. */
+  source: MediaElementAudioSourceNode | null;
+  /** The tone chain in place and what it was built from. */
+  fxNodes: AudioNode[];
+  fxKey: string;
   /** `${mediaId}:${proxy state}` of the loaded source. */
   src: string | null;
   clipId: ID | null;
@@ -204,7 +210,7 @@ export class Player {
       el.playsInline = true;
       el.disablePictureInPicture = true;
     }
-    const slot: Slot = { el, gain: null, src: null, clipId: null, target: null, frozen: false };
+    const slot: Slot = { el, gain: null, source: null, fxNodes: [], fxKey: '', src: null, clipId: null, target: null, frozen: false };
     const ac = this.ensureAudio();
     if (ac && this.master) {
       try {
@@ -213,6 +219,7 @@ export class Player {
         slot.gain.gain.value = 0;
         node.connect(slot.gain);
         slot.gain.connect(this.master);
+        slot.source = node;
       } catch {
         slot.gain = null;
       }
@@ -229,6 +236,44 @@ export class Player {
     el.addEventListener('loadedmetadata', flush);
     el.addEventListener('loadeddata', () => (this.dirty = true));
     return slot;
+  }
+
+  /** Rebuild a slot's tone chain (equaliser, compression) when the clip's sound settings change. */
+  private applyAudioFx(slot: Slot, fx: SourceClip['audioFx']): void {
+    const key = audioFxKey(fx);
+    if (key === slot.fxKey || !slot.source || !slot.gain || !this.audioCtx) return;
+    const ac = this.audioCtx;
+    slot.source.disconnect();
+    for (const n of slot.fxNodes) n.disconnect();
+    const nodes: AudioNode[] = [];
+    for (const s of audioStages(fx)) {
+      if (s.kind === 'compressor') {
+        const c = ac.createDynamicsCompressor();
+        c.threshold.value = s.g!;
+        c.ratio.value = Math.min(20, s.q!);
+        c.attack.value = 0.008;
+        c.release.value = 0.12;
+        c.knee.value = 6;
+        const makeup = ac.createGain();
+        makeup.gain.value = Math.pow(10, compressorMakeup(s.g!, s.q!) / 20);
+        nodes.push(c, makeup);
+      } else {
+        const b = ac.createBiquadFilter();
+        b.type = s.kind;
+        b.frequency.value = s.f!;
+        if (s.g !== undefined) b.gain.value = s.g;
+        if (s.q !== undefined) b.Q.value = s.q;
+        nodes.push(b);
+      }
+    }
+    let prev: AudioNode = slot.source;
+    for (const n of nodes) {
+      prev.connect(n);
+      prev = n;
+    }
+    prev.connect(slot.gain);
+    slot.fxNodes = nodes;
+    slot.fxKey = key;
   }
 
   private setGain(slot: Slot, value: number): void {
@@ -278,6 +323,7 @@ export class Player {
   private drive(slot: Slot, clip: SourceClip, expected: number, gain: number): void {
     const el = slot.el;
     slot.frozen = false;
+    this.applyAudioFx(slot, clip.audioFx);
     // The browser cannot play backwards: a reversed clip is stepped through by seeking, silently. The export plays it properly.
     if (this.playing && clip.reverse) {
       if (!el.paused) el.pause();

@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 
-import type { AnimKind, AudioClip, BlendMode, CardAnimation, ChromaKey, Ease, Follow, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, SpeedKeyframe, ZoomItem } from '../../shared/types.ts';
+import type { AnimKind, AudioClip, AudioFx, AudioPreset, BlendMode, CardAnimation, ChromaKey, Ease, Follow, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, SpeedKeyframe, VolumeKeyframe, ZoomItem } from '../../shared/types.ts';
 import { api, mediaUrl } from '../api.ts';
 import { player } from '../engine/player.ts';
 import { usePlayerTime } from '../hooks.ts';
-import { clamp, framingAt, localAt, segAt, sourceAt, speedAt } from '../../shared/timeline.ts';
+import { clamp, framingAt, localAt, segAt, sourceAt, speedAt, volumeKeyAt } from '../../shared/timeline.ts';
+import { AUDIO_PRESETS } from '../../shared/audiofx.ts';
 import { transformAt } from '../../shared/graphics.ts';
 import * as ops from '../../shared/ops.ts';
 import { PARTICLE_KINDS } from '../../shared/vfx.ts';
@@ -143,6 +144,87 @@ const EASES: { value: Ease; label: string }[] = [
 ];
 
 const HOLDS = [1, 2, 3, 5].map((v) => ({ value: String(v), label: `${v} s` }));
+
+const dbFmt = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
+
+/** Equaliser and compression on a clip's sound. */
+function ToneControls({ clip, set, now, done }: { clip: SourceClip; set: (p: Partial<SourceClip>) => void; now: (p: Partial<SourceClip>, label: string) => void; done: (label: string) => () => void }) {
+  const fx = clip.audioFx ?? {};
+  const put = (patch: Partial<AudioFx>) => set({ audioFx: { ...fx, ...patch } });
+  return (
+    <>
+      <Field label="Tone">
+        <Select
+          value={fx.preset ?? ''}
+          options={[{ value: '', label: 'As recorded' }, ...AUDIO_PRESETS.map((p) => ({ value: p.id, label: p.label }))]}
+          onChange={(v) => now({ audioFx: v ? { ...fx, preset: v as AudioPreset } : { ...fx, preset: undefined } }, 'Tone')}
+        />
+      </Field>
+      {fx.preset && <div className="hint">{AUDIO_PRESETS.find((p) => p.id === fx.preset)?.hint}</div>}
+      <Field label="Bass">
+        <Slider value={fx.low ?? 0} min={-12} max={12} step={0.5} onChange={(v) => put({ low: v || undefined })} onCommit={done('Bass')} format={dbFmt} />
+      </Field>
+      <Field label="Mids">
+        <Slider value={fx.mid ?? 0} min={-12} max={12} step={0.5} onChange={(v) => put({ mid: v || undefined })} onCommit={done('Mids')} format={dbFmt} />
+      </Field>
+      <Field label="Treble">
+        <Slider value={fx.high ?? 0} min={-12} max={12} step={0.5} onChange={(v) => put({ high: v || undefined })} onCommit={done('Treble')} format={dbFmt} />
+      </Field>
+      <Field label="Even out the levels">
+        <Slider value={fx.compress ?? 0} min={0} max={1} step={0.05} onChange={(v) => put({ compress: v || undefined })} onCommit={done('Compression')} format={(v) => (v ? `${Math.round(v * 100)}%` : 'Off')} />
+      </Field>
+    </>
+  );
+}
+
+/** Volume over a clip's life: points at moments, straight lines between them. */
+function VolumeKeys({ clip, start, set, now }: { clip: SourceClip; start: number; set: (p: Partial<SourceClip>) => void; now: (p: Partial<SourceClip>, label: string) => void }) {
+  const doc = useDoc()!;
+  const fps = doc.settings.fps;
+  const length = srcDuration(clip);
+  const time = usePlayerTime();
+  const local = clamp(time - start, 0, length);
+  const keys = clip.volumeKeys ?? [];
+  const here = keys.find((k) => Math.abs(k.t - local) <= 0.5 / fps);
+  const write = (list: VolumeKeyframe[] | undefined, label: string) => now({ volumeKeys: list && list.length ? list : undefined }, label);
+  const addHere = () => write(ops.upsertKeyframe(keys, { t: Math.round(local * fps) / fps, gain: volumeKeyAt(keys, local) }, fps), 'Add volume point');
+  const dip = (to: number, label: string) => {
+    const a = Math.max(0, local - 0.5);
+    const b = Math.min(length, local + 0.5);
+    let list = keys;
+    for (const [t, gain] of [[a, 1], [Math.max(a, local - 0.15), to], [Math.min(b, local + 0.15), to], [b, 1]] as const) list = ops.upsertKeyframe(list, { t: Math.round(t * fps) / fps, gain }, fps);
+    write(list, label);
+  };
+  return (
+    <Section title="Volume over time" action={keys.length ? <Button size="sm" variant="ghost" onClick={() => write(undefined, 'Clear volume points')}>Clear</Button> : undefined}>
+      <div className="row wrap">
+        <Button size="sm" onClick={() => dip(0.25, 'Volume dip')}>Dip here</Button>
+        <Button size="sm" onClick={() => dip(1.6, 'Volume swell')}>Swell here</Button>
+        <Button size="sm" icon="plus" onClick={addHere}>
+          {here ? 'Update point here' : 'Add point at playhead'}
+        </Button>
+      </div>
+      {keys.length > 0 && (
+        <div className="keyframes">
+          {keys.map((k) => (
+            <div key={k.t} className={`keyframe ${here === k ? 'on' : ''}`}>
+              <button type="button" className="keyframe-time" onClick={() => player.seek(start + k.t)} title="Go to this point">
+                <Icon name="target" size={11} /> {k.t.toFixed(2)} s
+              </button>
+              <span className="keyframe-slider">
+                <Slider value={k.gain} min={0} max={2} step={0.01} onChange={(v) => set({ volumeKeys: keys.map((x) => (x === k ? { ...x, gain: v } : x)) })} onCommit={() => commit('Volume point')} format={(v) => `${Math.round(v * 100)}%`} />
+              </span>
+              <button type="button" className="icon-btn" onClick={() => write(ops.removeKeyframe(keys, k.t, fps), 'Remove volume point')} title="Remove point" aria-label="Remove point">
+                <Icon name="x" size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="hint">Points multiply the clip's volume at that moment and the level moves evenly between them: dip the music under a line, swell it for the drop.</div>
+    </Section>
+  );
+}
 
 /** Speed, speed ramps, reverse, smoothing of slow motion, and freeze frames of a video clip. */
 function SpeedEditor({ kind, clip, start }: { kind: 'main' | 'overlay'; clip: SourceClip; start: number }) {
@@ -731,6 +813,8 @@ function ClipEditor({ kind, clip }: { kind: 'main' | 'overlay' | 'audio'; clip: 
           <Field label="Fade out">
             <Slider value={clip.fadeOut ?? 0} min={0} max={3} step={0.05} onChange={(v) => set({ fadeOut: v })} onCommit={done('Fade out')} format={(v) => `${v.toFixed(2)} s`} />
           </Field>
+          <ToneControls clip={clip} set={set} now={now} done={done} />
+          <VolumeKeys clip={clip} start={clipStart} set={set} now={now} />
           {kind === 'audio' && (
             <>
               <Field label="Used as">

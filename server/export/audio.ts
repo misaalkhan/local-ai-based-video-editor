@@ -26,6 +26,7 @@ import {
   toFrames,
 } from '../../shared/timeline.ts';
 import { speechSpans, timelineWords } from '../../shared/captions.ts';
+import { ffmpegAudioFilters } from '../../shared/audiofx.ts';
 
 export const SAMPLE_RATE = 48000;
 
@@ -71,6 +72,22 @@ export function tempoPieces(clip: SourceClip): { a: number; b: number; tempo: nu
     out.push({ a, b, tempo: (b - a) / plays });
   }
   return out;
+}
+
+/** A clip's volume keyframes as an ffmpeg expression in `t` (seconds into the clip): straight lines between points, held beyond them. */
+export function volumeKeysExpr(keys: { t: number; gain: number }[]): string {
+  const pts = [...keys].sort((a, b) => a.t - b.t);
+  if (pts.length === 1) return n(pts[0].gain);
+  // Nested conditionals from the last segment back, so each lands in the right stretch.
+  let expr = n(pts[pts.length - 1].gain);
+  for (let i = pts.length - 2; i >= 0; i--) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const len = Math.max(1e-6, b.t - a.t);
+    const line = `(${n(a.gain)}+(${n(b.gain)}-${n(a.gain)})*(t-${n(a.t)})/${n(len)})`;
+    expr = `if(lt(t,${n(b.t)}),${line},${expr})`;
+  }
+  return `if(lt(t,${n(pts[0].t)}),${n(pts[0].gain)},${expr})`;
 }
 
 /** Gain over time for a music clip, as an ffmpeg expression in `t` (timeline seconds). */
@@ -171,7 +188,9 @@ export function planAudio(p: Project, doc: ProjectDoc): AudioPlan {
       f.push(`atrim=start_sample=${samples(clip.in)}:end_sample=${samples(clip.out)}`, 'asetpts=PTS-STARTPTS', ...tempo(clip.speed));
     }
     if (clip.reverse) f.push('areverse');
+    f.push(...ffmpegAudioFilters(clip.audioFx));
     if (Math.abs(clip.volume - 1) > 1e-4) f.push(`volume=${n(clip.volume)}`);
+    if (clip.volumeKeys?.length) f.push(`volume=eval=frame:volume='${volumeKeysExpr(clip.volumeKeys)}'`);
     // A few milliseconds of fade at every cut keeps the waveform from stepping, which would click.
     const fadeIn = Math.max(clip.fadeIn ?? 0, microFade && dur > 0.05 ? 0.006 : 0);
     const fadeOut = Math.max(clip.fadeOut ?? 0, microFade && dur > 0.05 ? 0.006 : 0);

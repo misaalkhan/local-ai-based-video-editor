@@ -156,3 +156,19 @@ test('preset points stay inside a short clip, nearest to the moment', () => {
   const tail = rampPreset(clip, 2.95, 'slow-moment');
   assert.deepEqual(tail.map((k) => [k.t, k.speed]), [[2.5, 1], [2.8, 0.3], [3, 0.3]]);
 });
+
+test('volume keyframes shape the gain and become an ffmpeg expression', async () => {
+  const { volumeKeyAt, clipGainAt } = await import('../shared/timeline.ts');
+  const { volumeKeysExpr } = await import('../server/export/audio.ts');
+  const keys = [{ t: 1, gain: 1 }, { t: 2, gain: 0.25 }, { t: 3, gain: 1 }];
+  near(volumeKeyAt(keys, 0), 1);
+  near(volumeKeyAt(keys, 1.5), 0.625);
+  near(volumeKeyAt(keys, 2), 0.25);
+  near(volumeKeyAt(keys, 9), 1);
+  const clip = { ...plain, speed: 1, volume: 0.8, volumeKeys: keys };
+  near(clipGainAt(clip, 10, 12), 0.8 * 0.25);
+  const expr = volumeKeysExpr(keys);
+  assert.ok(expr.startsWith('if(lt(t,1),1,'));
+  assert.ok(expr.includes('(1+(0.25-1)*(t-1)/1)'));
+  assert.ok(!/[^0-9a-z(),.+*/\-]/i.test(expr), expr);
+});

@@ -12,6 +12,7 @@ import {
   createProject,
   createSnapshot,
   deleteSnapshot,
+  getEnvelope,
   getProject,
   listProjects,
   mediaDir,
@@ -21,6 +22,10 @@ import {
   trashProject,
 } from './store.ts';
 import { analyzeStability } from './stabilize.ts';
+import { findBeats } from '../shared/beats.ts';
+import type { Beats } from '../shared/beats.ts';
+
+const beatCache = new Map<string, Beats>();
 import { removeObjectTrack, trackObject } from './objects.ts';
 import { importMedia, proxyFile, removeMedia, resumePending, retranscribe } from './media.ts';
 import { MEDIA_EXT, extOf } from './probe.ts';
@@ -296,6 +301,21 @@ export function registerRoutes(r: Router): void {
   r.delete('/api/projects/:pid/media/:mid', (c) => {
     removeMedia(getProject(c.params.pid), c.params.mid);
     c.json({ ok: true });
+  });
+
+  /** The beats of a music file, for the timeline's markers and snapping. */
+  r.get('/api/projects/:pid/media/:mid/beats.json', (c) => {
+    const p = getProject(c.params.pid);
+    const m = p.media.get(c.params.mid);
+    if (!m) throw new HttpError(404, 'no such media');
+    const key = `${p.id}/${m.id}/${m.rev}`;
+    let beats = beatCache.get(key);
+    if (!beats) {
+      const env = getEnvelope(p, m.id);
+      beats = env ? findBeats(env) : { bpm: 0, times: [], confidence: 0 };
+      beatCache.set(key, beats);
+    }
+    c.json(beats);
   });
 
   /** Measure a video's camera motion for stabilising (once). */
