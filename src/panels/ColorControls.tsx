@@ -7,6 +7,7 @@ import { HSL_BANDS, sampleCurve } from '../../shared/color.ts';
 import type { CurvePoint, Curves, HslBandName } from '../../shared/color.ts';
 import { api, uploadLut } from '../api.ts';
 import { fail, toast } from '../store.ts';
+import { runTool } from '../actions.ts';
 import { Button, Field, Section, Segmented, Select, Slider } from '../ui.tsx';
 
 const pct = (v: number) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`;
@@ -17,11 +18,13 @@ interface Props {
   set: (patch: Partial<ClipFx>) => void;
   /** Settles the change on the undo stack. */
   commit: (label: string) => void;
+  /** The clip being graded, for Auto. */
+  clipId?: string;
   /** A change that lands at once (no slider). */
   now: (patch: Partial<ClipFx>, label: string) => void;
 }
 
-export function LightAndColour({ fx, set, commit }: Props) {
+export function LightAndColour({ fx, set, commit, clipId }: Props) {
   const row = (label: string, key: keyof ClipFx, min: number, max: number, hint?: string, format = pct) => (
     <Field label={label} hint={hint}>
       <Slider value={(fx[key] as number | undefined) ?? 0} min={min} max={max} step={0.01} onChange={(v) => set({ [key]: v || undefined })} onCommit={() => commit(label)} format={format} />
@@ -29,6 +32,14 @@ export function LightAndColour({ fx, set, commit }: Props) {
   );
   return (
     <>
+      {clipId && (
+        <div className="row">
+          <Button size="sm" icon="sparkles" onClick={() => void runTool('set_clip_look', { clip_id: clipId, auto: true })}>
+            Auto
+          </Button>
+          <span className="hint">Reads the clip and sets blacks, whites and exposure.</span>
+        </div>
+      )}
       {row('Exposure', 'exposure', -2, 2, 'stops', (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`)}
       {row('Highlights', 'highlights', -1, 1)}
       {row('Shadows', 'shadows', -1, 1)}

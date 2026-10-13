@@ -173,7 +173,7 @@ export function EffectsPanel() {
               <Field label="Blur">
                 <Slider value={fx.blur ?? 0} min={0} max={0.03} step={0.0005} onChange={(v) => setFx({ blur: v })} onCommit={() => commit('Blur')} format={(v) => `${Math.round((v / 0.03) * 100)}%`} />
               </Field>
-              <LightAndColour {...colour} />
+              <LightAndColour {...colour} clipId={clip.id} />
               <Field label="Warmth" hint="cool to warm">
                 <Slider value={fx.warmth ?? 0} min={-1} max={1} step={0.01} onChange={(v) => setFx({ warmth: v })} onCommit={() => commit('Warmth')} format={(v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`} />
               </Field>

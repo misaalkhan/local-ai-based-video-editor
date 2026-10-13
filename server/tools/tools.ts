@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ID, MediaAsset, OverlayClip, ProjectDoc, Range, TakeGroup } from '../../shared/types.ts';
+import type { ClipFx, ID, MediaAsset, OverlayClip, ProjectDoc, Range, TakeGroup } from '../../shared/types.ts';
 import { ASPECTS, aspectOf } from '../../shared/types.ts';
 import * as ops from '../../shared/ops.ts';
 import { DEFAULT_FRAMING, clamp, contentDuration, layoutMain, snap, sourceAt, srcDuration } from '../../shared/timeline.ts';
@@ -89,6 +89,52 @@ const B = (description: string) => ({ type: 'boolean', description });
 const after = (doc: ProjectDoc) => `The video is now ${sec(contentDuration(doc))}s long.`;
 
 /** The average colour of a picture's four corners, as a hex string: the usual way to find a green screen's green. */
+/**
+ * Lightroom's "Auto": read a frame, find where its blacks, whites and
+ * midtones sit, and set blacks, whites and exposure to open the picture up
+ * without blowing anything, plus a little vibrance when the colours are flat.
+ */
+async function autoTone(p: Project, media: MediaAsset, sourceTime: number): Promise<Partial<ClipFx>> {
+  const still = await mediaStill(p, media, sourceTime, 320);
+  if (!still) return {};
+  const ctx = still.getContext('2d');
+  const d = ctx.getImageData(0, 0, still.width, still.height).data;
+  const hist = new Uint32Array(256);
+  let satSum = 0;
+  let n = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+    hist[Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b)]++;
+    const max = Math.max(r, g, b);
+    satSum += max ? (max - Math.min(r, g, b)) / max : 0;
+    n++;
+  }
+  const pct = (q: number) => {
+    let acc = 0;
+    for (let v = 0; v < 256; v++) {
+      acc += hist[v];
+      if (acc >= q * n) return v / 255;
+    }
+    return 1;
+  };
+  const p1 = pct(0.005);
+  const p99 = pct(0.995);
+  const median = pct(0.5);
+  // Black point to 2%, white point to 98%, then the midtones towards a readable grey.
+  const black = Math.max(-0.15, Math.min(0.15, p1 - 0.02));
+  const white = Math.max(0.8, Math.min(1.2, p99 / 0.98));
+  const mid = Math.min(0.98, Math.max(0.02, (median - black) / Math.max(1e-3, white - black)));
+  const out: Partial<ClipFx> = {
+    blacks: Math.round(clamp(-black / 0.15, -0.6, 0.6) * 100) / 100 || undefined,
+    whites: Math.round(clamp((1 - white) / 0.2, -0.6, 0.6) * 100) / 100 || undefined,
+    exposure: Math.round(clamp(Math.log2(0.42 / mid), -0.7, 0.7) * 100) / 100 || undefined,
+  };
+  if (satSum / Math.max(1, n) < 0.22) out.vibrance = 0.15;
+  return out;
+}
+
 async function autoKeyColor(p: Project, mediaId: ID): Promise<string | null> {
   try {
     const { createCanvas, loadImage } = await import('@napi-rs/canvas');
@@ -788,7 +834,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'set_clip_look',
-    description: `Grade the colour of a main or b-roll clip, or every main clip when clip_id is "all". Start from a look (${Object.keys(LOOKS).join(', ')}) or from the clip's current grade, then set values. Basic: brightness/contrast/saturation (multipliers, 1 = unchanged), black_and_white 0-1, blur, warmth -1..1, vignette, sepia, grain, cinema_bars 0-0.25, mirror. Lightroom-style: exposure (stops, -2..2), highlights and shadows (-1..1: pull down blown skies with highlights -0.4, open dark faces with shadows +0.3), whites and blacks (-1..1), temperature (-1 blue..1 amber) and tint (-1 green..1 magenta) to fix a colour cast, vibrance (-1..1, saturates muted colours first). curve_rgb (and curve_r/g/b): points of [in, out] in 0..1, e.g. a gentle S [[0,0],[0.25,0.2],[0.75,0.8],[1,1]] for contrast, [[0,0.08],[1,1]] lifts the blacks for a matte film look. hsl: per hue range (red, orange, yellow, green, aqua, blue, purple, magenta) {hue, sat, lum} each -1..1, e.g. {"orange":{"sat":-0.3}} tames skin, {"green":{"hue":0.3,"sat":-0.2}} makes foliage teal. lut: the name of an imported .cube LUT (list_library kind=luts) with lut_amount 0-1. copy_from: a clip id whose grade is copied to the targets (the way to match clips). Pass reset to clear. For a consistent piece grade all main clips together (clip_id "all").`,
+    description: `Grade the colour of a main or b-roll clip, or every main clip when clip_id is "all". Start from a look (${Object.keys(LOOKS).join(', ')}) or from the clip's current grade, then set values. Basic: brightness/contrast/saturation (multipliers, 1 = unchanged), black_and_white 0-1, blur, warmth -1..1, vignette, sepia, grain, cinema_bars 0-0.25, mirror. Lightroom-style: exposure (stops, -2..2), highlights and shadows (-1..1: pull down blown skies with highlights -0.4, open dark faces with shadows +0.3), whites and blacks (-1..1: + brightens the whites, + lifts the blacks; auto sets both from the picture), temperature (-1 blue..1 amber) and tint (-1 green..1 magenta) to fix a colour cast, vibrance (-1..1, saturates muted colours first). curve_rgb (and curve_r/g/b): points of [in, out] in 0..1, e.g. a gentle S [[0,0],[0.25,0.2],[0.75,0.8],[1,1]] for contrast, [[0,0.08],[1,1]] lifts the blacks for a matte film look. hsl: per hue range (red, orange, yellow, green, aqua, blue, purple, magenta) {hue, sat, lum} each -1..1, e.g. {"orange":{"sat":-0.3}} tames skin, {"green":{"hue":0.3,"sat":-0.2}} makes foliage teal. lut: the name of an imported .cube LUT (list_library kind=luts) with lut_amount 0-1. copy_from: a clip id whose grade is copied to the targets (the way to match clips). Pass reset to clear. For a consistent piece grade all main clips together (clip_id "all").`,
     schema: obj({
       clip_id: S('Clip id, or "all" for every main clip.'),
       look: S('A ready-made look.', Object.keys(LOOKS)),
@@ -810,6 +856,7 @@ export const TOOLS: ToolDef[] = [
       highlights: N('-1..1.'),
       shadows: N('-1..1.'),
       whites: N('-1..1.'),
+      auto: B('Lightroom-style Auto: read the clip and set blacks, whites and exposure to open it up (then adjust on top).'),
       blacks: N('-1..1.'),
       temperature: N('-1 blue to 1 amber.'),
       tint: N('-1 green to 1 magenta.'),
@@ -824,20 +871,29 @@ export const TOOLS: ToolDef[] = [
       reset: B('Remove all adjustments.'),
     }, ['clip_id']),
     label: () => 'Adjusting colour',
-    run: (ctx, a) => {
+    run: async (ctx, a) => {
       const v = view(ctx.p);
       const targets = str(a.clip_id) === 'all' ? v.layout.filter((s) => s.clip.kind === 'media').map((s) => ({ kind: 'main' as const, id: s.clip.id })) : [findItem(v, a.clip_id)];
       let d = v.doc;
       let n = 0;
+      const autos: string[] = [];
       for (const it of targets) {
         if (it.kind !== 'main' && it.kind !== 'overlay') bad('Colour can only be adjusted on main and b-roll clips.');
         const cur = sourceClip(d, it.kind, it.id);
         if (!cur) continue;
+        let auto: Partial<ClipFx> = {};
+        if (a.auto) {
+          const media = ctx.p.media.get(cur.mediaId);
+          if (media && media.kind !== 'audio') {
+            auto = await autoTone(ctx.p, media, sourceTimeAt(cur, Math.min(srcDuration(cur) / 2, 2)));
+            autos.push(`${it.id}: ${Object.entries(auto).map(([k, val]) => `${k} ${val}`).join(', ') || 'no change needed'}`);
+          }
+        }
         const from = a.copy_from ? sourceClip(d, findItem(v, a.copy_from).kind as 'main' | 'overlay', str(a.copy_from)) : undefined;
         if (a.copy_from && !from) bad(`No clip ${a.copy_from} to copy the grade from.`);
         // A copied grade or a look brings its colour, not the clip's own stabilising.
         const own = { ...(cur.fx?.stabilize ? { stabilize: cur.fx.stabilize } : {}) };
-        const base = { ...(a.look ? (LOOKS[str(a.look)]?.fx ?? bad(`Unknown look "${a.look}". Use ${Object.keys(LOOKS).join(', ')}.`)) : from ? { ...(from.fx ?? {}), stabilize: undefined } : cur.fx ?? {}), ...own };
+        const base = { ...(a.look ? (LOOKS[str(a.look)]?.fx ?? bad(`Unknown look "${a.look}". Use ${Object.keys(LOOKS).join(', ')}.`)) : from ? { ...(from.fx ?? {}), stabilize: undefined } : cur.fx ?? {}), ...own, ...auto };
         const signed = (key: string, lo = -1, hi = 1) => (a[key] !== undefined ? { [key]: clamp(num(a[key], key), lo, hi) || undefined } : {});
         const curve = (key: string) => {
           const pts = a[key];
@@ -884,7 +940,7 @@ export const TOOLS: ToolDef[] = [
       }
       if (!n) bad('No clip with a picture to adjust.');
       save(ctx, d, 'set_clip_look', a.look ? `Look: ${str(a.look)}` : a.copy_from ? 'Match grade' : 'Colour');
-      return { text: a.reset ? `Cleared colour adjustments on ${n} clip${n === 1 ? '' : 's'}.` : `Updated the grade of ${n} clip${n === 1 ? '' : 's'}${a.look ? ` (${LOOKS[str(a.look)].label})` : a.copy_from ? ` (copied from ${str(a.copy_from)})` : ''}.` };
+      return { text: a.reset ? `Cleared colour adjustments on ${n} clip${n === 1 ? '' : 's'}.` : `Updated the grade of ${n} clip${n === 1 ? '' : 's'}${a.look ? ` (${LOOKS[str(a.look)].label})` : a.copy_from ? ` (copied from ${str(a.copy_from)})` : ''}.${autos.length ? ` Auto set ${autos.join('; ')}.` : ''}` };
     },
   },
 

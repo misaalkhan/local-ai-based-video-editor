@@ -119,9 +119,9 @@ export interface GradeTables {
  */
 export function gradeTables(fx: ClipFx): GradeTables {
   const exposure = Math.pow(2, fx.exposure ?? 0);
-  // Whites raise or lower the top of the range, blacks the bottom.
+  // Whites bring the top of the range down to meet the brightest pixels (+ is brighter), blacks lift or crush the bottom (+ lifts).
   const black = -(fx.blacks ?? 0) * 0.15;
-  const white = 1 + (fx.whites ?? 0) * 0.2;
+  const white = 1 - (fx.whites ?? 0) * 0.2;
   // Warm pushes red up and blue down; tint pushes magenta (red+blue) against green.
   const temp = (fx.temperature ?? 0) * 0.18;
   const tint = (fx.tint ?? 0) * 0.12;
