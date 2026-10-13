@@ -37,6 +37,7 @@ import {
   updateGraphic,
   wordSpan,
   wordsKept,
+  sanitizeDoc,
 } from '../shared/ops.ts';
 import { contentDuration, faceAt, framingAt, layoutMain, mainDuration, sceneAt, srcDuration, zoomAt, layerGeometry } from '../shared/timeline.ts';
 import { transformAt } from '../shared/graphics.ts';
@@ -644,4 +645,13 @@ test('a sequence groups clips and what sits over them, takes a render, and expan
   assert.equal(back.graphics.length, 2);
   near(back.graphics.find((g) => g.props.text === 'T')!.start, 20.5);
   near(mainDuration(back), 25);
+});
+
+test('a sequence whose clip is gone is dropped when the document is cleaned', () => {
+  let d = base();
+  d = insertMain(d, { kind: 'media', ...makeClip(broll, 30, { in: 1, duration: 2 }) });
+  const r = groupSequence(d, 0, 1, 'All');
+  assert.equal(sanitizeDoc(r.doc).sequences?.length, 1);
+  const removed = removeItem(r.doc, { kind: 'main', id: r.clip.id });
+  assert.equal(sanitizeDoc(removed).sequences, undefined);
 });

@@ -1636,7 +1636,8 @@ export function sanitizeDoc(doc: ProjectDoc, hasMedia?: (id: ID) => boolean): Pr
         : { follow: undefined }),
     }));
   d.zooms = (d.zooms ?? []).filter((z) => z.duration > 0 && z.scale > 0);
-  d.sequences = (d.sequences ?? []).filter((s) => s && typeof s === 'object' && typeof s.id === 'string' && Array.isArray(s.main)).map((s) => ({ ...s, overlays: s.overlays ?? [], audio: s.audio ?? [], graphics: s.graphics ?? [], zooms: s.zooms ?? [], rev: typeof s.rev === 'number' ? s.rev : 1 }));
+  const referenced = new Set(d.main.map((c) => c.sequenceId).filter(Boolean));
+  d.sequences = (d.sequences ?? []).filter((s) => s && typeof s === 'object' && typeof s.id === 'string' && Array.isArray(s.main) && referenced.has(s.id)).map((s) => ({ ...s, overlays: s.overlays ?? [], audio: s.audio ?? [], graphics: s.graphics ?? [], zooms: s.zooms ?? [], rev: typeof s.rev === 'number' ? s.rev : 1 }));
   if (!d.sequences.length) delete d.sequences;
   const markers = (d.markers ?? []).filter((m) => m && typeof m === 'object' && Number.isFinite(m.t) && m.t >= 0).map((m) => ({ id: typeof m.id === 'string' && m.id ? m.id : uid('k'), t: snap(m.t, fps), label: typeof m.label === 'string' ? m.label : '', ...(typeof m.color === 'string' && m.color ? { color: m.color } : {}) }));
   if (markers.length) d.markers = markers.sort((a, b) => a.t - b.t);

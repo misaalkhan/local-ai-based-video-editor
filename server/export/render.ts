@@ -89,6 +89,7 @@ export function startExport(p: Project, opts: ExportOptions, target: RenderTarge
     fps: doc.settings.fps,
     duration,
     startedAt: Date.now(),
+    ...(target.dest ? { internal: true } : {}),
   };
   const controller = new AbortController();
   let settle: (j: ExportJob) => void = () => {};

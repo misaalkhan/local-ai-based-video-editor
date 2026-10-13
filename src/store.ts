@@ -402,6 +402,7 @@ function onServerEvent(projectId: ID, e: ServerEvent): void {
       set({ snapshots: e.snapshots });
       return;
     case 'export':
+      if (e.job.internal) return;
       set({ exportJob: e.job });
       return;
     case 'toast':

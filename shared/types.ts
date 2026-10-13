@@ -590,6 +590,8 @@ export interface ExportJob {
   id: ID;
   projectId: ID;
   status: 'running' | 'done' | 'error' | 'cancelled';
+  /** A render the app started for itself (a nested sequence), not one for the user's export folder. */
+  internal?: boolean;
   progress: number;
   stage: string;
   width: number;
