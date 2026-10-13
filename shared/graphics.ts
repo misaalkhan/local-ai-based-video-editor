@@ -8,6 +8,8 @@
 import type { AnimKind, Ease, GraphicItem, GraphicTemplate, Keyframe, Transform } from './types.ts';
 import { clamp } from './timeline.ts';
 import { fontString } from './fonts.ts';
+import { drawFlare, drawLightLeak, drawParticles } from './vfx.ts';
+import type { VfxFrame } from './vfx.ts';
 
 /** The subset of CanvasRenderingContext2D used for drawing; satisfied by the DOM and by @napi-rs/canvas. */
 export interface Ctx2D {
@@ -874,7 +876,17 @@ function drawEmoji(t: TCtx): void {
   ctx.fillText(str(props.emoji, '🔥'), 0, 0);
 }
 
+/** The frame's rectangle in an item's local space, for effects that cover the whole picture. */
+function vfxFrame(t: TCtx): VfxFrame {
+  const a = t.toLocal(0, 0);
+  const b = t.toLocal(1, 1);
+  return { ctx: t.ctx, props: t.props, local: t.local, frame: { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y }, u: t.u };
+}
+
 const TEMPLATES: Record<Exclude<GraphicTemplate, 'progress'>, (t: TCtx) => void> = {
+  particles: (t) => drawParticles(vfxFrame(t)),
+  lightleak: (t) => drawLightLeak(vfxFrame(t)),
+  flare: (t) => drawFlare(vfxFrame(t)),
   text: drawTextTemplate,
   popup: drawPopup,
   comment: drawComment,
@@ -970,6 +982,14 @@ export interface GraphicPreset {
 }
 
 export const GRAPHIC_PRESETS: Record<string, GraphicPreset> = {
+  confetti: { template: 'particles', label: 'Confetti', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 4, props: { kind: 'confetti', density: 1, speed: 1, size: 1, seed: 1 } },
+  snow: { template: 'particles', label: 'Snow', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 6, props: { kind: 'snow', density: 1, speed: 1, size: 1, seed: 2 } },
+  sparks: { template: 'particles', label: 'Sparks', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 4, props: { kind: 'sparks', density: 1, speed: 1, size: 1, seed: 3 } },
+  bokeh: { template: 'particles', label: 'Bokeh', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 6, props: { kind: 'bokeh', density: 1, speed: 1, size: 1, seed: 4 } },
+  rain: { template: 'particles', label: 'Rain', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 6, props: { kind: 'rain', density: 1, speed: 1, size: 1, seed: 5 } },
+  petals: { template: 'particles', label: 'Petals', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 6, props: { kind: 'petals', density: 1, speed: 1, size: 1, seed: 6 } },
+  lightleak: { template: 'lightleak', label: 'Light leak', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 4, props: { hue: 28, intensity: 0.7, seed: 1 } },
+  flare: { template: 'flare', label: 'Lens flare', x: 0.78, y: 0.22, animIn: 'fade', animOut: 'fade', duration: 4, props: { intensity: 0.8, color: '#FFE2B0', anamorphic: true } },
   hook: {
     template: 'text', label: 'Hook', x: 0.5, y: 0.2, animIn: 'pop', animOut: 'fade', duration: 3,
     props: { text: 'Your hook here', font: 'Montserrat', weight: 900, size: 0.074, color: '#111111', background: '#FFFFFF', padding: 0.42, radius: 0.3, maxWidth: 0.8 },

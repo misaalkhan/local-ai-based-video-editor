@@ -1134,6 +1134,14 @@ input[type='range']::-webkit-slider-thumb {
   inset: 5%;
   border: 1px dashed rgba(255, 255, 255, 0.5);
 }
+.panel-sub {
+  margin: 14px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
 .pick-box {
   position: absolute;
   border: 2px dashed #ffd166;

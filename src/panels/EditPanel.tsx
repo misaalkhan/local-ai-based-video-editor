@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 
-import type { AnimKind, AudioClip, BlendMode, ChromaKey, Ease, Follow, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, SpeedKeyframe, ZoomItem } from '../../shared/types.ts';
+import type { AnimKind, AudioClip, BlendMode, CardAnimation, ChromaKey, Ease, Follow, GraphicItem, GraphicTemplate, Keyframe, LayerMask, MainClip, MediaAsset, MotionKeyframe, OverlayClip, SourceClip, SpeedKeyframe, ZoomItem } from '../../shared/types.ts';
 import { api, mediaUrl } from '../api.ts';
 import { player } from '../engine/player.ts';
 import { usePlayerTime } from '../hooks.ts';
 import { clamp, framingAt, localAt, segAt, sourceAt, speedAt } from '../../shared/timeline.ts';
 import { transformAt } from '../../shared/graphics.ts';
 import * as ops from '../../shared/ops.ts';
+import { PARTICLE_KINDS } from '../../shared/vfx.ts';
 import { FONT_FAMILIES, FONT_NOTES, nearestWeight, weightsOf } from '../../shared/fonts.ts';
 import { defaultColor } from '../../shared/graphics.ts';
 import { formatTime, srcDuration } from '../../shared/timeline.ts';
@@ -88,6 +89,25 @@ const FIELDS: Record<GraphicTemplate, FieldDef[]> = {
   ],
   emoji: [{ key: 'emoji', label: 'Emoji', type: 'text' }, { key: 'size', label: 'Size', type: 'slider', min: 0.05, max: 0.6, step: 0.005, percent: true }],
   progress: [{ key: 'position', label: 'Edge', type: 'select', options: [{ value: 'top', label: 'Top' }, { value: 'bottom', label: 'Bottom' }] }, ACCENT],
+  particles: [
+    { key: 'kind', label: 'Kind', type: 'select', options: PARTICLE_KINDS.map((k) => ({ value: k.id, label: k.label })) },
+    { key: 'density', label: 'How many', type: 'slider', min: 0.1, max: 3, step: 0.05 },
+    { key: 'speed', label: 'Speed', type: 'slider', min: 0.2, max: 3, step: 0.05 },
+    { key: 'size', label: 'Size', type: 'slider', min: 0.3, max: 3, step: 0.05 },
+    { key: 'wind', label: 'Wind', type: 'slider', min: -2, max: 2, step: 0.05 },
+    { key: 'color', label: 'One colour', type: 'optcolor', fallback: '#FFFFFF' },
+    { key: 'seed', label: 'Variation', type: 'slider', min: 1, max: 20, step: 1 },
+  ],
+  lightleak: [
+    { key: 'hue', label: 'Hue', type: 'slider', min: 0, max: 360, step: 1 },
+    { key: 'intensity', label: 'Strength', type: 'slider', min: 0, max: 2, step: 0.05 },
+    { key: 'seed', label: 'Variation', type: 'slider', min: 1, max: 20, step: 1 },
+  ],
+  flare: [
+    { key: 'intensity', label: 'Strength', type: 'slider', min: 0, max: 2, step: 0.05 },
+    { key: 'color', label: 'Colour', type: 'color' },
+    { key: 'anamorphic', label: 'Blue streak', type: 'toggle' },
+  ],
 };
 
 const ANIMS: { value: AnimKind; label: string }[] = [
@@ -769,6 +789,18 @@ function CardEditor({ clip }: { clip: Extract<MainClip, { kind: 'color' }> }) {
       <Field label="Length">
         <Slider value={clip.duration} min={0.5} max={10} step={0.1} onChange={(v) => live((d) => ops.updateClip(d, 'main', clip.id, { duration: v }))} onCommit={() => commit('Card length')} format={(v) => `${v.toFixed(1)} s`} />
       </Field>
+      <Field label="Background">
+        <Segmented
+          value={clip.animated ?? 'flat'}
+          options={[{ value: 'flat', label: 'Flat' }, { value: 'flow', label: 'Flow' }, { value: 'aurora', label: 'Aurora' }, { value: 'rays', label: 'Rays' }, { value: 'bokeh', label: 'Bokeh' }, { value: 'grid', label: 'Grid' }]}
+          onChange={(v) => edit((d) => ops.updateClip(d, 'main', clip.id, { animated: v === 'flat' ? undefined : (v as CardAnimation) }), 'Card background')}
+        />
+      </Field>
+      {clip.animated && (
+        <Field label="Accent">
+          <ColorInput value={clip.accent ?? '#FFFFFF'} onChange={(v) => live((d) => ops.updateClip(d, 'main', clip.id, { accent: v }))} onCommit={() => commit('Card accent')} />
+        </Field>
+      )}
     </Section>
   );
 }

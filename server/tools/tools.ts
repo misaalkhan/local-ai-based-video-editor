@@ -770,8 +770,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'add_transition',
-    description: 'Make a main segment arrive from the previous one with a transition instead of a plain cut: fade (cross fade), dip (to black), flash (white flash, for energy and beats), slide-left, slide-right, slide-up, whip (fast blurred whip pan), zoom, blur (one picture blurs into the next), glitch (digital tearing, for tech or chaos), or none to remove. Plain cuts are best inside a talking sequence; use transitions sparingly, for a change of scene or topic.',
-    schema: obj({ clip_id: S('The segment that arrives (the second of the pair).'), type: S('Transition.', ['fade', 'dip', 'flash', 'slide-left', 'slide-right', 'slide-up', 'whip', 'zoom', 'blur', 'glitch', 'none']), duration_s: N('Length. Default 0.4.') }, ['clip_id', 'type']),
+    description: 'Make a main segment arrive from the previous one with a transition instead of a plain cut: fade (cross fade), dip (to black), flash (white flash, for energy and beats), slide-left, slide-right, slide-up, whip (fast blurred whip pan), zoom, blur (one picture blurs into the next), glitch (digital tearing, for tech or chaos), burn (film burn: the picture flares orange and white from a corner, for nostalgia, travel, film looks), or none to remove. Plain cuts are best inside a talking sequence; use transitions sparingly, for a change of scene or topic.',
+    schema: obj({ clip_id: S('The segment that arrives (the second of the pair).'), type: S('Transition.', ['fade', 'dip', 'flash', 'slide-left', 'slide-right', 'slide-up', 'whip', 'zoom', 'blur', 'glitch', 'burn', 'none']), duration_s: N('Length. Default 0.4.') }, ['clip_id', 'type']),
     label: () => 'Adding a transition',
     run: (ctx, a) => {
       const v = view(ctx.p);
@@ -800,6 +800,8 @@ export const TOOLS: ToolDef[] = [
       vignette: N('0-1.'),
       sepia: N('0-1.'),
       grain: N('0-1.'),
+      bloom: N('Glow on the bright parts, 0-1 (0.3 is dreamy, 0.7 is a haze).'),
+      rgb_split: N('Colour fringing: the red and blue channels pulled apart, as a fraction of the width (0.004 subtle, 0.012 strong; for glitch, VHS, hype).'),
       cinema_bars: N('0-0.25 of the height.'),
       mirror: B('Flip the picture left to right.'),
       exposure: N('Stops, -2..2.'),
@@ -870,6 +872,8 @@ export const TOOLS: ToolDef[] = [
               ...(a.vignette !== undefined ? { vignette: clamp(num(a.vignette, 'vignette'), 0, 1) } : {}),
               ...(a.sepia !== undefined ? { sepia: clamp(num(a.sepia, 'sepia'), 0, 1) } : {}),
               ...(a.grain !== undefined ? { grain: clamp(num(a.grain, 'grain'), 0, 1) } : {}),
+              ...(a.bloom !== undefined ? { bloom: clamp(num(a.bloom, 'bloom'), 0, 1) || undefined } : {}),
+              ...(a.rgb_split !== undefined ? { rgbSplit: clamp(num(a.rgb_split, 'rgb_split'), 0, 0.05) || undefined } : {}),
               ...(a.cinema_bars !== undefined ? { letterbox: clamp(num(a.cinema_bars, 'cinema_bars'), 0, 0.25) } : {}),
               ...(a.mirror !== undefined ? { flip: !!a.mirror || undefined } : {}),
             };
@@ -1020,6 +1024,22 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       d = ops.setKeyframes(d, it.kind as 'overlay' | 'graphic', it.id, kfs);
       save(ctx, d, 'add_keyframes', `Animated ${it.id}`);
       return { text: `Set ${kfs.length} keyframes on ${it.kind} ${it.id}.` };
+    },
+  },
+  {
+    name: 'add_vfx',
+    description: 'An effects layer over the picture for a stretch of time: confetti (a win, a birthday, a reveal), sparks (fire, hype, energy), snow, petals (soft, romantic, spring), rain (mood), bokeh (dreamy soft lights, music and night), lightleak (warm film light at the edges, nostalgia and travel), flare (a lens flare at x,y, for a sun or a shine; moves with keyframes). density/speed/size scale the particles (1 = normal); color forces one colour; hue (light leak) and intensity (leak and flare). Every frame is the same in the preview and the export.',
+    schema: obj({ kind: S('The effect.', ['confetti', 'sparks', 'snow', 'petals', 'rain', 'bokeh', 'lightleak', 'flare']), start: N('Timeline seconds.'), duration: N('Seconds, default 4.'), density: N('0.1-3.'), speed: N('0.2-3.'), size: N('0.3-3.'), color: S('One colour for the particles, e.g. #FFD166.'), hue: N('Light leak hue 0-360, default 28 (amber).'), intensity: N('0-2 for lightleak and flare.'), x: N('Flare: where the light is, 0-1.'), y: N('Flare: 0-1.') }, ['kind', 'start']),
+    label: (a) => `Adding ${str(a.kind)}`,
+    run: (ctx, a) => {
+      const kind = str(a.kind);
+      if (!GRAPHIC_PRESETS[kind] || !['particles', 'lightleak', 'flare'].includes(GRAPHIC_PRESETS[kind].template)) bad(`Unknown effect "${kind}".`);
+      const props: Record<string, unknown> = {};
+      for (const key of ['density', 'speed', 'size', 'hue', 'intensity'] as const) if (a[key] !== undefined) props[key] = num(a[key], key);
+      if (a.color !== undefined) props.color = str(a.color);
+      const r = ops.addGraphic(ctx.p.doc, { preset: kind, props, start: Math.max(0, num(a.start, 'start')), duration: Math.max(0.2, optNum(a.duration, 'duration') ?? 4), x: a.x !== undefined ? clamp(num(a.x, 'x'), 0, 1) : undefined, y: a.y !== undefined ? clamp(num(a.y, 'y'), 0, 1) : undefined, name: GRAPHIC_PRESETS[kind].label, createdBy: ctx.messageId });
+      save(ctx, r.doc, 'add_vfx', `${GRAPHIC_PRESETS[kind].label} at ${sec(r.item.start)}s`);
+      return { text: `Added ${GRAPHIC_PRESETS[kind].label.toLowerCase()} ${r.item.id} from ${sec(r.item.start)} to ${sec(r.item.start + r.item.duration)}s.` };
     },
   },
   {
@@ -1247,10 +1267,11 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
   {
     name: 'add_title_card',
     description: 'Insert a solid-colour card with centred text into the main track (for an opening title or a chapter break). Everything after it moves later.',
-    schema: obj({ text: S('What it says.'), duration: N('Seconds. Default 2.5.'), index: N('Position among main segments, 0 = the very start (default).'), color: S('Card colour. Default black.'), text_color: S('Default white.') }, ['text']),
+    schema: obj({ text: S('What it says.'), duration: N('Seconds. Default 2.5.'), index: N('Position among main segments, 0 = the very start (default).'), color: S('Card colour. Default black.'), text_color: S('Default white.'), background: S('A moving background instead of a flat card: flow (soft colour blobs), aurora (bands of light), rays (sunburst), bokeh (soft lights), grid (sliding grid).', ['flow', 'aurora', 'rays', 'bokeh', 'grid']), accent: S('Colour of the moving background, default white.') }, ['text']),
     label: () => 'Adding a title card',
     run: (ctx, a) => {
-      const d = ops.addTitleCard(ctx.p.doc, { text: str(a.text), duration: optNum(a.duration, 'duration') ?? 2.5, index: optNum(a.index, 'index') ?? 0, color: str(a.color) || '#000000', textColor: str(a.text_color) || '#FFFFFF', createdBy: ctx.messageId });
+      const animated = ['flow', 'aurora', 'rays', 'bokeh', 'grid'].includes(str(a.background)) ? (str(a.background) as 'flow') : undefined;
+      const d = ops.addTitleCard(ctx.p.doc, { text: str(a.text), duration: optNum(a.duration, 'duration') ?? 2.5, index: optNum(a.index, 'index') ?? 0, color: str(a.color) || '#000000', textColor: str(a.text_color) || '#FFFFFF', animated, accent: str(a.accent) || undefined, createdBy: ctx.messageId });
       save(ctx, d, 'add_title_card', `Title card "${clip(str(a.text), 40)}"`);
       return { text: `Added a title card "${clip(str(a.text), 50)}". ${after(d)} ${shifted}` };
     },

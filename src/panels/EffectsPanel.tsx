@@ -183,6 +183,12 @@ export function EffectsPanel() {
               <Field label="Sepia">
                 <Slider value={fx.sepia ?? 0} min={0} max={1} step={0.01} onChange={(v) => setFx({ sepia: v })} onCommit={() => commit('Sepia')} format={pct} />
               </Field>
+              <Field label="Glow (bloom)">
+                <Slider value={fx.bloom ?? 0} min={0} max={1} step={0.01} onChange={(v) => setFx({ bloom: v || undefined })} onCommit={() => commit('Glow')} format={pct} />
+              </Field>
+              <Field label="Colour fringe (RGB split)">
+                <Slider value={(fx.rgbSplit ?? 0) * 100} min={0} max={3} step={0.05} onChange={(v) => setFx({ rgbSplit: v ? v / 100 : undefined })} onCommit={() => commit('Colour fringe')} format={(v) => `${v.toFixed(1)}%`} />
+              </Field>
               <Field label="Film grain">
                 <Slider value={fx.grain ?? 0} min={0} max={1} step={0.01} onChange={(v) => setFx({ grain: v })} onCommit={() => commit('Film grain')} format={pct} />
               </Field>

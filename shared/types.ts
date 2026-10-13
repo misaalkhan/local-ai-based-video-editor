@@ -50,6 +50,10 @@ export interface Framing {
 export interface ClipFx {
   /** Camera-shake removal, 0..1: how much of the motion to smooth away (the picture is cropped a little to make room). */
   stabilize?: number;
+  /** Glow on the bright parts, 0..1. */
+  bloom?: number;
+  /** Colour channels pulled apart sideways, as a fraction of the frame width (0.01 is a strong fringe). */
+  rgbSplit?: number;
   brightness?: number;
   contrast?: number;
   saturation?: number;
@@ -95,7 +99,7 @@ export interface ClipFx {
   lutAmount?: number;
 }
 
-export type TransitionType = 'fade' | 'dip' | 'flash' | 'slide-left' | 'slide-right' | 'slide-up' | 'whip' | 'zoom' | 'blur' | 'glitch';
+export type TransitionType = 'fade' | 'dip' | 'flash' | 'slide-left' | 'slide-right' | 'slide-up' | 'whip' | 'zoom' | 'blur' | 'glitch' | 'burn';
 
 /** How a main clip arrives from the one before it. */
 export interface Transition {
@@ -161,7 +165,12 @@ export interface ColorMainClip extends ItemMeta {
   duration: number;
   color: string;
   transition?: Transition;
+  /** A moving background instead of a flat colour, drawn from `color` and `accent`. */
+  animated?: CardAnimation;
+  accent?: string;
 }
+
+export type CardAnimation = 'flow' | 'aurora' | 'rays' | 'bokeh' | 'grid';
 
 /** The main track is magnetic: clips play back to back in array order. */
 export type MainClip = MediaMainClip | ColorMainClip;
@@ -248,6 +257,9 @@ export type GraphicTemplate =
   | 'image'
   | 'highlight'
   | 'emoji'
+  | 'particles'
+  | 'lightleak'
+  | 'flare'
   | 'progress';
 
 export type AnimKind = 'none' | 'fade' | 'pop' | 'bounce' | 'zoom' | 'typewriter' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right';

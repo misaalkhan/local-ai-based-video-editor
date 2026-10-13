@@ -32,6 +32,7 @@ import type {
   MotionKeyframe,
   Keyframe,
   SpeedKeyframe,
+  CardAnimation,
 } from './types.ts';
 import { ASPECTS } from './types.ts';
 import {
@@ -770,12 +771,16 @@ export function addZoom(
 /** A solid-colour card on the main track with centred text over it. */
 export function addTitleCard(
   doc: ProjectDoc,
-  opts: { text: string; duration?: number; index?: number; color?: string; textColor?: string } & ItemMeta,
+  opts: { text: string; duration?: number; index?: number; color?: string; textColor?: string; animated?: CardAnimation; accent?: string } & ItemMeta,
 ): ProjectDoc {
   const fps = doc.settings.fps;
   const duration = Math.max(0.5, snap(opts.duration ?? 3, fps));
   const index = clamp(opts.index ?? 0, 0, doc.main.length);
   const card: MainClip = { kind: 'color', id: uid(), duration, color: opts.color ?? '#000000', name: opts.name ?? 'Title card' };
+  if (opts.animated) {
+    card.animated = opts.animated;
+    if (opts.accent) card.accent = opts.accent;
+  }
   if (opts.createdBy) card.createdBy = opts.createdBy;
   const d = insertMain(doc, card, index);
   const start = layoutMain(d)[index].start;
@@ -797,7 +802,7 @@ export function updateClip(
   doc: ProjectDoc,
   kind: 'main' | 'overlay' | 'audio',
   id: ID,
-  patch: Partial<SourceClip & OverlayClip & AudioClip & { color: string; duration: number }>,
+  patch: Partial<SourceClip & OverlayClip & AudioClip & { color: string; duration: number; animated: CardAnimation | undefined; accent: string }>,
   mediaDur?: number,
 ): ProjectDoc {
   const d = cloneDoc(doc);
@@ -810,6 +815,8 @@ export function updateClip(
       if (patch.color) c.color = patch.color;
       if (patch.duration) c.duration = Math.max(1 / fps, snap(patch.duration, fps));
       if (patch.name !== undefined) c.name = patch.name;
+      if ('animated' in patch) c.animated = patch.animated || undefined;
+      if (patch.accent !== undefined) c.accent = patch.accent;
     } else {
       // A plain speed replaces a ramp.
       if (patch.speed !== undefined && patch.ramp === undefined) delete c.ramp;

@@ -3,7 +3,8 @@
 // (video frames, stills) through a FrameProvider. That is why an export looks
 // like what was on screen.
 
-import type { CaptionSettings, CaptionStyle, ChromaKey, ClipFx, FaceTrack, GraphicItem, ID, MainClip, MotionTrack, ObjectTrack, OverlayClip, ProjectDoc, Transform } from './types.ts';
+import type { CaptionSettings, CaptionStyle, CardAnimation, ChromaKey, ClipFx, FaceTrack, GraphicItem, ID, MainClip, MotionTrack, ObjectTrack, OverlayClip, ProjectDoc, Transform } from './types.ts';
+import { rng } from './vfx.ts';
 import type { CaptionCard } from './captions.ts';
 import { cardAt, displayWord } from './captions.ts';
 import { applyBaked, bakeGrade, needsGrade } from './color.ts';
@@ -179,6 +180,83 @@ function stabOf(env: Env, ref: VisualRef): { track: MotionTrack; t: number; stre
   return track ? { track, t: ref.sourceTime, strength } : undefined;
 }
 
+/** The picture again, as a copy on a scratch canvas sized to its area (halved for blur-heavy effects). */
+function pictureCopy(env: Env, img: LayerImage, s: Rect, dst: Rect, slot: string, flip: boolean, filter: string, shrink = 1): { canvas: unknown; w: number; h: number } | null {
+  const w = Math.max(2, Math.round(dst.w / shrink));
+  const h = Math.max(2, Math.round(dst.h / shrink));
+  const sc = env.o.provider.scratch?.(w, h, slot);
+  if (!sc) return null;
+  const c = sc.ctx;
+  c.save();
+  c.globalCompositeOperation = 'source-over';
+  c.globalAlpha = 1;
+  if ('filter' in c) c.filter = filter || 'none';
+  if (c.clearRect) c.clearRect(0, 0, w, h);
+  if (flip) {
+    c.translate(w, 0);
+    c.scale(-1, 1);
+  }
+  c.drawImage(img.image, s.x, s.y, s.w, s.h, 0, 0, w, h);
+  c.restore();
+  return { canvas: sc.canvas, w, h };
+}
+
+/** Glow: a blurred, brightened copy of the picture added over it, so highlights bleed. */
+function drawBloom(env: Env, img: LayerImage, s: Rect, dst: Rect, amount: number, alpha: number, filter: string, flip: boolean): void {
+  const { ctx, W, o } = env;
+  const k = clamp(amount, 0, 1);
+  const radius = Math.round(0.018 * W * o.pixelScale);
+  // Blur the picture at quarter size, pushing the midtones down so only the bright parts remain.
+  // Contrast first pushes everything but the highlights to black; the blur then spreads what is left.
+  const copy = pictureCopy(env, img, s, dst, 'bloom', flip, `${filter ? `${filter} ` : ''}contrast(4) brightness(${(0.45 + 0.25 * k).toFixed(2)}) blur(${Math.max(1, radius / 2)}px)`, 2);
+  if (!copy) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = alpha * (0.15 + 0.45 * k);
+  ctx.drawImage(copy.canvas as never, 0, 0, copy.w, copy.h, dst.x, dst.y, dst.w, dst.h);
+  ctx.restore();
+}
+
+/** Chromatic fringe: the red and blue channels pulled to either side. */
+function drawRgbSplit(env: Env, img: LayerImage, s: Rect, dst: Rect, amount: number, alpha: number, flip: boolean): void {
+  const { ctx, W } = env;
+  const shift = clamp(amount, 0, 0.05) * W;
+  const copy = pictureCopy(env, img, s, dst, 'split', flip, '');
+  if (!copy) return;
+  // Each side carries one channel only, added over the picture; the picture's own channel underneath is darkened to keep the sum right.
+  const sides: { dx: number; keep: string; cut: string }[] = [
+    { dx: -shift, keep: '#FF0000', cut: 'rgba(255,0,0,1)' },
+    { dx: shift, keep: '#0000FF', cut: 'rgba(0,0,255,1)' },
+  ];
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(dst.x, dst.y, dst.w, dst.h);
+  ctx.clip();
+  for (const side of sides) {
+    // Remove this channel from the picture where it sits, then add the shifted copy of that channel.
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = side.keep === '#FF0000' ? '#00FFFF' : '#FFFF00';
+    ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
+    const sc = env.o.provider.scratch?.(copy.w, copy.h, 'split-channel');
+    if (!sc) break;
+    const c = sc.ctx;
+    c.save();
+    c.globalCompositeOperation = 'source-over';
+    c.globalAlpha = 1;
+    if (c.clearRect) c.clearRect(0, 0, copy.w, copy.h);
+    c.drawImage(copy.canvas as never, 0, 0);
+    c.globalCompositeOperation = 'multiply';
+    c.fillStyle = side.keep;
+    c.fillRect(0, 0, copy.w, copy.h);
+    c.restore();
+    ctx.globalCompositeOperation = 'lighter';
+    // Stretched by the shift so the far edge is not left without this channel.
+    ctx.drawImage(sc.canvas as never, 0, 0, copy.w, copy.h, dst.x + Math.min(0, side.dx), dst.y, dst.w + Math.abs(side.dx), dst.h);
+  }
+  ctx.restore();
+}
+
 /** Draw a media clip's picture into the frame. Returns false when the picture is not available. */
 function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: number): boolean {
   const { ctx, W, H, o } = env;
@@ -251,6 +329,8 @@ function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: 
     ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
     ctx.restore();
   }
+  if (fx?.bloom) drawBloom(env, img, s, dst, fx.bloom, alpha, filter, !!fx.flip);
+  if (fx?.rgbSplit) drawRgbSplit(env, img, s, dst, fx.rgbSplit, alpha, !!fx.flip);
   if (fx?.grain) drawGrain(env, fx.grain, env.t, dst, alpha);
   if (fx?.letterbox) {
     // Cinema bars: across the whole frame for the main picture, within the picture for an overlay.
@@ -293,8 +373,100 @@ function drawMainSeg(env: Env, seg: MainSeg, ref: VisualRef | undefined, img: La
     ctx.globalAlpha = alpha;
     ctx.fillStyle = seg.clip.color;
     ctx.fillRect(0, 0, W, H);
+    if (seg.clip.animated) drawAnimatedCard(ctx, seg.clip.animated, seg.clip.color, seg.clip.accent, env.t - seg.start, W, H);
     ctx.globalAlpha = 1;
   } else if (ref) drawClip(env, ref, img, alpha);
+}
+
+/** Moving backgrounds for title cards, from the card's colour and an accent. */
+function drawAnimatedCard(ctx: Ctx2D, kind: CardAnimation, color: string, accent: string | undefined, t: number, W: number, H: number): void {
+  const acc = accent || '#FFFFFF';
+  const R = Math.max(W, H);
+  ctx.save();
+  switch (kind) {
+    case 'flow': {
+      // Two broad colour blobs circling slowly.
+      for (let i = 0; i < 2; i++) {
+        const cx = W * (0.5 + 0.35 * Math.sin(t * 0.35 + i * 2.1));
+        const cy = H * (0.5 + 0.3 * Math.cos(t * 0.27 + i * 1.3));
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.6);
+        g.addColorStop(0, acc);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+      break;
+    }
+    case 'aurora': {
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 4; i++) {
+        const y = H * (0.2 + i * 0.18 + 0.06 * Math.sin(t * 0.6 + i));
+        const g = ctx.createLinearGradient(0, y - H * 0.18, 0, y + H * 0.18);
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(0.5, acc);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalAlpha = 0.16 + 0.08 * Math.sin(t * 0.9 + i * 1.7);
+        ctx.fillStyle = g;
+        ctx.save();
+        ctx.translate(W / 2, y);
+        ctx.rotate(0.08 * Math.sin(t * 0.3 + i));
+        ctx.fillRect(-W, -H * 0.18, 2 * W, H * 0.36);
+        ctx.restore();
+      }
+      break;
+    }
+    case 'rays': {
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(t * 0.12);
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = acc;
+      for (let i = 0; i < 14; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        const a0 = (i / 14) * Math.PI * 2;
+        ctx.arc(0, 0, R * 1.2, a0, a0 + Math.PI / 14);
+        ctx.closePath();
+        ctx.fill();
+      }
+      break;
+    }
+    case 'bokeh': {
+      ctx.globalCompositeOperation = 'lighter';
+      const r = rng(5);
+      for (let i = 0; i < 18; i++) {
+        const x = W * ((r() + 0.04 * t * (0.5 + r())) % 1);
+        const y = H * ((r() - 0.02 * t * (0.5 + r()) + 10) % 1);
+        const rad = R * (0.03 + 0.08 * r());
+        const g = ctx.createRadialGradient(x, y, rad * 0.5, x, y, rad);
+        g.addColorStop(0, acc);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalAlpha = 0.12 + 0.1 * r();
+        ctx.fillStyle = g;
+        ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+      }
+      break;
+    }
+    case 'grid': {
+      const step = R / 12;
+      const off = (t * step * 0.25) % step;
+      ctx.strokeStyle = acc;
+      ctx.globalAlpha = 0.25;
+      ctx.lineWidth = Math.max(1, R / 900);
+      ctx.beginPath();
+      for (let x = -step + off; x < W + step; x += step) {
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, H);
+      }
+      for (let y = -step + off; y < H + step; y += step) {
+        ctx.moveTo(0, y);
+        ctx.lineTo(W, y);
+      }
+      ctx.stroke();
+      break;
+    }
+  }
+  ctx.restore();
 }
 
 /** The frozen last frame of a main clip, as something drawClip understands. */
@@ -319,6 +491,25 @@ function drawMain(env: Env, scene: Scene, layout: MainSeg[], fps: number): void 
   const drawFrom = (alpha = 1) => drawMainSeg(env, tr.from, fromRef, o.provider.frozen?.(tr.from), alpha);
   const p = easeOutCubic(tr.p);
   switch (tr.type) {
+    case 'burn': {
+      // Film burn: the outgoing picture flares up from one corner in hot orange and white, then the new one is left behind.
+      if (tr.p < 0.55) drawFrom();
+      else drawCurrent();
+      const k = Math.sin(clamp(tr.p, 0, 1) * Math.PI);
+      const reach = Math.hypot(W, H) * (0.2 + 1.3 * easeOutCubic(tr.p));
+      const g = ctx.createRadialGradient(W * 1.05, H * 0.95, 0, W * 1.05, H * 0.95, reach);
+      g.addColorStop(0, `rgba(255,255,240,${(0.95 * k).toFixed(3)})`);
+      g.addColorStop(0.45, `rgba(255,160,40,${(0.85 * k).toFixed(3)})`);
+      g.addColorStop(0.8, `rgba(200,40,0,${(0.35 * k).toFixed(3)})`);
+      g.addColorStop(1, 'rgba(120,0,0,0)');
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      break;
+    }
     case 'dip':
     case 'flash': {
       // Out to black (or white) over the first half, back in over the second.
