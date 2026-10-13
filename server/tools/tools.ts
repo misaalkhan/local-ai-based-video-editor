@@ -1521,7 +1521,7 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
   },
   {
     name: 'apply_recipe',
-    description: 'Apply a recipe: sets the captions and the colour look right away and tells you the pacing, fonts and music level to follow for the rest of the edit (then do those steps yourself: remove_silences, remove_fillers, add_text with the font, set_music).',
+    description: 'Apply a recipe (built in: talking-head, meme, tutorial, vlog, elegant, montage, hype, cinematic, retro, clean, plus any the user saved): sets the captions and the colour look right away and tells you the pacing, fonts, music level and effects to follow for the rest of the edit (then do those steps yourself: remove_silences, remove_fillers, add_text with the font, set_music, the effects in the notes).',
     schema: obj({ recipe: S('Recipe name or id from list_recipes.') }, ['recipe']),
     label: (a) => `Applying the "${str(a.recipe)}" style`,
     run: (ctx, a) => {
