@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  addMarker,
+  rollCut,
   addAudio,
   addGraphic,
   addOverlay,
@@ -574,4 +576,37 @@ test('keyframe upsert replaces the one at the same frame and keeps order', async
   const push = motionPreset(undefined, 4, 'push-in', 0.2);
   assert.equal(push[1].t, 4);
   assert.ok(Math.abs((push[1].scale ?? 0) - 1.2) < 1e-9);
+});
+
+test('markers follow cuts and the roll edit trades footage between neighbours', () => {
+  let d = base();
+  d = insertMain(d, { kind: 'media', ...makeClip(broll, 30, { in: 2, duration: 3 }) });
+  d = addMarker(d, 5, 'sting');
+  d = addMarker(d, 21, 'end card');
+  near(d.markers![0].t, 5);
+  // Cutting 2-4 s moves the later marker up and keeps the earlier.
+  d = rippleDelete(d, [{ start: 2, end: 4 }]);
+  assert.deepEqual(d.markers!.map((m) => [m.t, m.label]), [[3, 'sting'], [19, 'end card']]);
+  // A marker inside a cut goes with it.
+  d = rippleDelete(d, [{ start: 2.5, end: 3.5 }]);
+  assert.deepEqual(d.markers!.map((m) => m.label), ['end card']);
+  // Roll the cut between talk (which has footage left) and broll 1 s later: talk shows a second more, broll starts a second later in its file.
+  let e = insertMain(createDoc('p', 'T'), { kind: 'media', ...makeClip(talk, 30, { in: 0, duration: 15 }) });
+  e = insertMain(e, { kind: 'media', ...makeClip(broll, 30, { in: 2, duration: 3 }) });
+  const before = layoutMain(e);
+  const r = rollCut(e, 0, 1, (id) => (id === 'talk' ? 20 : 8));
+  const after = layoutMain(r);
+  near(after[0].end, before[0].end + 1);
+  near(after[1].end, before[1].end);
+  near((r.main[1] as MediaMainClip).in, 3);
+  // Rolling the other way further than broll can give stops where broll's file starts.
+  const r2 = rollCut(e, 0, -5, (id) => (id === 'talk' ? 20 : 8));
+  near(layoutMain(r2)[1].end, before[1].end);
+  near((r2.main[1] as MediaMainClip).in, 0);
+  // At the end of its file a clip cannot give more.
+  assert.equal(rollCut(d, d.main.length - 2, 1, (id) => (id === 'talk' ? 20 : 8)), d);
+  // No room at all: nothing changes.
+  const tight = insertMain(createDoc('p', 'T'), { kind: 'media', ...makeClip(broll, 30, { in: 0, duration: 8 }) });
+  const t2 = insertMain(tight, { kind: 'media', ...makeClip(talk, 30, { in: 0, duration: 2 }) });
+  assert.equal(rollCut(t2, 0, 1, () => 8), t2);
 });

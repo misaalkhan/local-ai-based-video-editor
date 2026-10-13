@@ -145,6 +145,32 @@ const EASES: { value: Ease; label: string }[] = [
 
 const HOLDS = [1, 2, 3, 5].map((v) => ({ value: String(v), label: `${v} s` }));
 
+/** The markers on the ruler: notes at moments, which the assistant reads too. */
+function MarkerList() {
+  const doc = useDoc()!;
+  const fps = doc.settings.fps;
+  const list = doc.markers ?? [];
+  const time = usePlayerTime();
+  return (
+    <Section title="Markers" action={<Button size="sm" icon="plus" onClick={() => edit((d) => ops.addMarker(d, player.time, `Marker ${(d.markers?.length ?? 0) + 1}`), 'Add marker')}>At playhead (M)</Button>}>
+      {list.length === 0 && <div className="hint">Press M while playing to drop a marker. Write what should happen there ("sting", "zoom on this", "cut here") and the assistant will read it.</div>}
+      {list.map((m) => (
+        <div key={m.id} className={`keyframe ${Math.abs(m.t - time) <= 0.5 / fps ? 'on' : ''}`}>
+          <button type="button" className="keyframe-time" onClick={() => player.seek(m.t)} title="Go there">
+            <Icon name="target" size={11} /> {formatTime(m.t, true, fps)}
+          </button>
+          <span className="keyframe-slider">
+            <TextInput value={m.label} onChange={(v) => live((d) => ops.updateMarker(d, m.id, { label: v }))} onCommit={() => commit('Rename marker')} placeholder="What happens here" />
+          </span>
+          <button type="button" className="icon-btn" onClick={() => edit((d) => ops.removeMarker(d, m.id), 'Remove marker')} title="Remove marker" aria-label="Remove marker">
+            <Icon name="x" size={11} />
+          </button>
+        </div>
+      ))}
+    </Section>
+  );
+}
+
 const dbFmt = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
 
 /** Equaliser and compression on a clip's sound. */
@@ -923,9 +949,12 @@ export function EditPanel() {
             <Footer />
           </>
         ) : (
-          <Empty icon="edit" title="Nothing selected">
-            Click a clip, graphic or punch-in on the timeline to change it here.
-          </Empty>
+          <>
+            <Empty icon="edit" title="Nothing selected">
+              Click a clip, graphic or punch-in on the timeline to change it here.
+            </Empty>
+            <MarkerList />
+          </>
         )}
       </div>
     </div>

@@ -33,6 +33,7 @@ import type {
   Keyframe,
   SpeedKeyframe,
   CardAnimation,
+  Marker,
 } from './types.ts';
 import { ASPECTS } from './types.ts';
 import {
@@ -250,6 +251,7 @@ function remapTimed(d: ProjectDoc, ranges: Range[]): void {
   d.audio = d.audio.map((a) => remapSource(a, a.role === 'music')).filter(notNull);
   d.graphics = d.graphics.map(remapSpan).filter(notNull);
   d.zooms = d.zooms.map(remapSpan).filter(notNull);
+  if (d.markers) d.markers = d.markers.filter((m) => !ranges.some((r) => m.t >= r.start - EPS && m.t < r.end - EPS)).map((m) => ({ ...m, t: map(m.t) }));
 }
 
 /** Push everything that starts at or after `at` later by `delta` seconds. */
@@ -261,6 +263,7 @@ function shiftTimed(d: ProjectDoc, at: number, delta: number): void {
   d.audio = d.audio.map(mv);
   d.graphics = d.graphics.map(mv);
   d.zooms = d.zooms.map(mv);
+  if (d.markers) d.markers = d.markers.map((m) => (m.t >= at - EPS ? { ...m, t: Math.max(0, snap(m.t + delta, fps)) } : m));
 }
 
 /**
@@ -414,6 +417,7 @@ export function reanchorTimed(before: ProjectDoc, after: ProjectDoc, dropOrphans
   d.audio = d.audio.map((a) => (a.role === 'music' ? a : moveClip(a))).filter(notNull);
   d.graphics = d.graphics.map(moveSpan).filter(notNull);
   d.zooms = d.zooms.map(moveSpan).filter(notNull);
+  if (d.markers) d.markers = d.markers.map((m) => { const hit = map(m.t); return hit ? { ...m, t: snap(hit.t, fps) } : null; }).filter(notNull);
   return d;
 }
 
@@ -836,6 +840,70 @@ export function updateClip(
   const cur = { ...list[i] };
   if (patch.speed !== undefined && patch.ramp === undefined) delete cur.ramp;
   list[i] = fitClip({ ...cur, ...patch }, fps, mediaDur);
+  return d;
+}
+
+// ---------------------------------------------------------------------------
+// Markers
+
+/** Add a marker at `t`, or rename the one already within a frame of it. */
+export function addMarker(doc: ProjectDoc, t: number, label = '', color?: string): ProjectDoc {
+  const d = cloneDoc(doc);
+  const fps = d.settings.fps;
+  const at = Math.max(0, snap(t, fps));
+  const list = d.markers ?? [];
+  const same = list.find((m) => Math.abs(m.t - at) <= 0.5 / fps);
+  if (same) {
+    same.label = label || same.label;
+    if (color) same.color = color;
+  } else list.push({ id: uid('k'), t: at, label, ...(color ? { color } : {}) });
+  d.markers = list.sort((a, b) => a.t - b.t);
+  return d;
+}
+
+export function updateMarker(doc: ProjectDoc, id: ID, patch: Partial<Marker>): ProjectDoc {
+  const d = cloneDoc(doc);
+  d.markers = (d.markers ?? []).map((m) => (m.id === id ? { ...m, ...patch, id: m.id, t: patch.t !== undefined ? Math.max(0, snap(patch.t, d.settings.fps)) : m.t } : m)).sort((a, b) => a.t - b.t);
+  return d;
+}
+
+export function removeMarker(doc: ProjectDoc, id: ID): ProjectDoc {
+  const d = cloneDoc(doc);
+  d.markers = (d.markers ?? []).filter((m) => m.id !== id);
+  if (!d.markers.length) delete d.markers;
+  return d;
+}
+
+/**
+ * Roll the cut between main clip `index` and the next one by `delta` seconds:
+ * one grows at the cut by what the other gives up, so nothing else moves.
+ */
+export function rollCut(doc: ProjectDoc, index: number, delta: number, mediaDurOf: (id: ID) => number | undefined): ProjectDoc {
+  const d = cloneDoc(doc);
+  const fps = d.settings.fps;
+  const a = d.main[index];
+  const b = d.main[index + 1];
+  if (!a || !b) return doc;
+  const frame = 1 / fps;
+  let dt = snap(delta, fps);
+  // How far each side can go: a clip keeps at least a frame, and media clips stay inside their files.
+  const room = (c: MainClip, edge: 'head' | 'tail'): number => {
+    if (c.kind === 'color') return Infinity;
+    const md = mediaDurOf(c.mediaId);
+    return md && md > 0 ? maxExtend(c, edge, md) : Infinity;
+  };
+  const lenA = mainClipDuration(a);
+  const lenB = mainClipDuration(b);
+  if (dt > 0) dt = Math.min(dt, Math.floor(Math.min(room(a, 'tail'), lenB - frame) * fps + 1e-4) / fps);
+  else dt = -Math.min(-dt, Math.floor(Math.min(room(b, 'head'), lenA - frame) * fps + 1e-4) / fps);
+  if (Math.abs(dt) < frame - EPS) return doc;
+  const grow = (c: MainClip, edge: 'head' | 'tail', by: number): MainClip => {
+    if (c.kind === 'color') return { ...c, duration: snap(c.duration + by, fps) };
+    const dur = srcDuration(c);
+    return { ...c, ...(edge === 'tail' ? sourceRange(c, 0, dur + by) : sourceRange(c, -by, dur)) };
+  };
+  d.main[index] = grow(a, 'tail', dt);
+  d.main[index + 1] = grow(b, 'head', -dt);
   return d;
 }
 
@@ -1480,6 +1548,9 @@ export function sanitizeDoc(doc: ProjectDoc, hasMedia?: (id: ID) => boolean): Pr
         : { follow: undefined }),
     }));
   d.zooms = (d.zooms ?? []).filter((z) => z.duration > 0 && z.scale > 0);
+  const markers = (d.markers ?? []).filter((m) => m && typeof m === 'object' && Number.isFinite(m.t) && m.t >= 0).map((m) => ({ id: typeof m.id === 'string' && m.id ? m.id : uid('k'), t: snap(m.t, fps), label: typeof m.label === 'string' ? m.label : '', ...(typeof m.color === 'string' && m.color ? { color: m.color } : {}) }));
+  if (markers.length) d.markers = markers.sort((a, b) => a.t - b.t);
+  else delete d.markers;
   d.captions = { ...DEFAULT_CAPTIONS, ...(d.captions ?? {}), edits: { ...(d.captions?.edits ?? {}) } };
   d.takes = (d.takes ?? []).filter((t) => Array.isArray(t.takes) && (!hasMedia || hasMedia(t.mediaId)));
   return d;

@@ -478,6 +478,10 @@ export function describeTimeline(p: Project): string {
   timed('B-ROLL', doc.overlays, (o) => `${o.id}  ${sec(o.start)}-${sec(o.start + srcDuration(o))}  file ${tagOf(o.mediaId)} source ${sec(o.in)}-${sec(o.out)}${o.muted ? '' : '  (sound on)'}${o.transform ? '  picture-in-picture' : ''}${o.name ? `  name "${o.name}"` : ''}`);
   timed('PUNCH-INS', doc.zooms, (z) => `${z.id}  ${sec(z.start)}-${sec(z.start + z.duration)}  ${z.scale.toFixed(2)}x${z.toScale ? ` to ${z.toScale.toFixed(2)}x` : ''} ${z.ease}  focus x=${z.focusX.toFixed(2)} y=${z.focusY.toFixed(2)}`);
   timed('AUDIO', doc.audio, (a) => `${a.id}  ${sec(a.start)}-${sec(a.start + srcDuration(a))}  ${a.role} file ${tagOf(a.mediaId)} "${a.name ?? p.media.get(a.mediaId)?.name ?? ''}"  ${gainToDb(a.volume).toFixed(0)} dB${a.role === 'music' ? (a.duck === false ? ', no ducking' : ', ducks under speech') : ''}${a.muted ? ', muted' : ''}`);
+  if (doc.markers?.length) {
+    lines.push('', 'MARKERS (the user\'s notes on the ruler; treat a note as a request for that moment):');
+    for (const m of doc.markers) lines.push(`  ${m.id}  ${sec(m.t)}s  ${m.label ? `"${m.label}"` : '(no note)'}`);
+  }
   if (doc.takes.length) {
     lines.push('', 'TAKE GROUPS (repeated attempts at one line):');
     for (const t of doc.takes) {

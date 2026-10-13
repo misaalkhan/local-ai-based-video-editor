@@ -2,7 +2,8 @@ import { useEffect } from 'react';
 import { agentBusy, closeProject, fail, openProject, redo, select, setUi, undo, useDerived, useDoc, useStore } from '../store.ts';
 import type { LeftPanel } from '../store.ts';
 import { player } from '../engine/player.ts';
-import { addToTimeline, deleteSelection, duplicateSelection, importFiles, importPaths, splitAtPlayhead } from '../actions.ts';
+import { addToTimeline, deleteSelection, duplicateSelection, edit, importFiles, importPaths, splitAtPlayhead } from '../actions.ts';
+import { addMarker } from '../../shared/ops.ts';
 import { takePending } from '../startup.ts';
 import { api } from '../api.ts';
 import { navigate } from '../router.ts';
@@ -122,6 +123,10 @@ function useShortcuts(): void {
       if (key === ' ') {
         e.preventDefault();
         player.toggle();
+      } else if (key === 'm' && !mod) {
+        e.preventDefault();
+        if (agentBusy(useStore.getState())) return;
+        edit((d) => addMarker(d, player.time, `Marker ${(d.markers?.length ?? 0) + 1}`), 'Add marker');
       } else if (mod && key === 'z') {
         e.preventDefault();
         if (agentBusy(useStore.getState())) return;
@@ -211,7 +216,7 @@ export function Editor({ projectId }: { projectId: string }) {
               type="button"
               className={`rail-btn ${ui.left === r.id ? 'active' : ''}`}
               onClick={() => setUi({ left: r.id })}
-              disabled={r.id === 'edit' && !hasSelection}
+              disabled={r.id === 'edit' && !hasSelection && !(doc?.markers?.length)}
               aria-pressed={ui.left === r.id}
             >
               <Icon name={r.icon} size={18} />

@@ -2851,6 +2851,57 @@ input[type='range']::-webkit-slider-thumb {
 }
 
 /* Keyframes */
+.tl-marker {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 2px 2px 6px 6px;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  z-index: 3;
+}
+.tl-marker span {
+  position: absolute;
+  left: 8px;
+  bottom: 1px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text);
+  white-space: nowrap;
+  background: var(--panel);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.tl-roll {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  margin-left: -5px;
+  width: 10px;
+  cursor: col-resize;
+  z-index: 6;
+}
+.tl-roll::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 30%;
+  bottom: 30%;
+  width: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.55);
+  opacity: 0;
+}
+.tl-row:hover .tl-roll::after {
+  opacity: 0.6;
+}
+.tl-roll:hover::after {
+  opacity: 1;
+  background: #ffd166;
+}
 .tl-beat {
   position: absolute;
   bottom: 0;

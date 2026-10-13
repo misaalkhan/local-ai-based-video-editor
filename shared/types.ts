@@ -402,6 +402,15 @@ export interface ProjectDoc {
   zooms: ZoomItem[];
   captions: CaptionSettings;
   takes: TakeGroup[];
+  /** Named moments on the ruler: notes to self, cues for the assistant, snap points. */
+  markers?: Marker[];
+}
+
+export interface Marker {
+  id: ID;
+  t: number;
+  label: string;
+  color?: string;
 }
 
 // ---------------------------------------------------------------------------

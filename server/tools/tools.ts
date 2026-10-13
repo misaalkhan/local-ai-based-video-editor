@@ -1028,6 +1028,42 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
     },
   },
   {
+    name: 'add_marker',
+    description: 'Put a marker with a note on the ruler at a moment (a cue for later, a point to snap to, a question for the user). Markers move with cuts. Use remove to delete one by id.',
+    schema: obj({ at: N('Timeline seconds.'), label: S('The note.'), color: S('A colour, e.g. #ff7ab6.'), remove: S('A marker id to remove instead.') }, []),
+    label: (a) => (a.remove ? 'Removing a marker' : `Marker: ${str(a.label) || sec(num(a.at, 'at'))}`),
+    run: (ctx, a) => {
+      if (a.remove) {
+        const id = str(a.remove);
+        if (!ctx.p.doc.markers?.some((m) => m.id === id)) bad(`No marker ${id}.`);
+        save(ctx, ops.removeMarker(ctx.p.doc, id), 'add_marker', `Removed marker ${id}`);
+        return { text: `Removed marker ${id}.` };
+      }
+      const at = num(a.at, 'at');
+      const d = ops.addMarker(ctx.p.doc, at, str(a.label), str(a.color) || undefined);
+      save(ctx, d, 'add_marker', `Marker at ${sec(at)}s`);
+      return { text: `Marker at ${sec(at)}s${a.label ? ` "${str(a.label)}"` : ''}.` };
+    },
+  },
+  {
+    name: 'roll_cut',
+    description: 'Move the cut between a main segment and the next one without changing the total length: by seconds (positive = later, the first clip shows more and the next one less). Use it to land a cut on a beat or just after a word when the two sides are from one recording or when a frame or two matters.',
+    schema: obj({ clip_id: S('The first of the two main segments.'), by: N('Seconds, positive = later.') }, ['clip_id', 'by']),
+    label: () => 'Rolling a cut',
+    run: (ctx, a) => {
+      const v = view(ctx.p);
+      const it = findItem(v, a.clip_id);
+      if (it.kind !== 'main') bad('Only cuts on the main track can be rolled.');
+      const index = layoutMain(v.doc).findIndex((s) => s.clip.id === it.id);
+      if (index < 0 || index >= v.doc.main.length - 1) bad('That segment has nothing after it.');
+      const d = ops.rollCut(v.doc, index, num(a.by, 'by'), (id) => ctx.p.media.get(id)?.duration);
+      if (d === v.doc) bad('The cut cannot move that way (one side has no more footage or would vanish).');
+      save(ctx, d, 'roll_cut', `Rolled the cut after ${it.id}`);
+      const now = findItem(view(ctx.p), it.id);
+      return { text: `The cut after ${it.id} is now at ${sec(now.end)}s.` };
+    },
+  },
+  {
     name: 'set_audio_fx',
     description: 'Tone and dynamics of a clip\'s sound (main, b-roll, music, voice or effect clips). Presets: voice (rumble out, presence up, light levelling: the default for talking), podcast (fuller, studio-like), warm, bright, bass (music low end), radio and phone (narrow, for a call or a broadcast gag), muffled (through a wall, behind a door, underwater), big (loud and dense, for a drop). Then bass/mids/treble in dB (-12..12) and compress 0-1 on top. Pass preset none to clear.',
     schema: obj({ clip_id: S('A clip id.'), preset: S('Tone preset.', ['voice', 'podcast', 'warm', 'bright', 'bass', 'radio', 'phone', 'muffled', 'big', 'none']), bass: N('dB.'), mids: N('dB.'), treble: N('dB.'), compress: N('0-1.') }, ['clip_id']),

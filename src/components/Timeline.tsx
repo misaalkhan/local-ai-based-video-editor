@@ -46,6 +46,8 @@ interface Item {
   badge?: string;
   /** Beat times of a music clip, seconds after it starts. */
   beats?: number[];
+  /** A main clip with another after it: its cut can be rolled. */
+  roll?: boolean;
 }
 
 /** Timeline positions (seconds after the item starts) of the beats inside a music clip. */
@@ -139,12 +141,13 @@ function buildRows(doc: ProjectDoc, d: NonNullable<ReturnType<typeof useDerived>
     icon: 'media',
     items: d.layout.map((seg) =>
       seg.clip.kind === 'color'
-        ? { kind: 'main' as const, id: seg.clip.id, start: seg.start, end: seg.end, label: seg.clip.name ?? 'Colour card', tone: 'card', color: seg.clip.color, transition: !!seg.clip.transition && seg.index > 0 }
+        ? { kind: 'main' as const, id: seg.clip.id, start: seg.start, end: seg.end, label: seg.clip.name ?? 'Colour card', tone: 'card', color: seg.clip.color, transition: !!seg.clip.transition && seg.index > 0, roll: seg.index < d.layout.length - 1 }
         : {
             kind: 'main' as const, id: seg.clip.id, start: seg.start, end: seg.end, label: name(seg.clip.mediaId, seg.clip.name), tone: 'main',
             mediaId: seg.clip.mediaId, inT: seg.clip.in, speed: seg.clip.speed, volume: seg.clip.volume, muted: seg.clip.muted, ...remap(seg.clip),
             transition: !!seg.clip.transition && seg.index > 0,
             keys: [...(seg.clip.motion ?? []).map((k) => k.t), ...rampKeys(seg.clip)],
+            roll: seg.index < d.layout.length - 1,
           },
     ),
   });
@@ -412,6 +415,31 @@ export function Timeline() {
     window.addEventListener('pointerup', onUp);
   };
 
+  /** Drag the cut between two main clips: one gives what the other takes, nothing else moves. */
+  const startRoll = (e: RPointerEvent, item: Item) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const state = useStore.getState();
+    const origin = state.doc;
+    if (!origin || agentBusy(state)) return;
+    const index = layoutMain(origin).findIndex((s) => s.clip.id === item.id);
+    if (index < 0 || index >= origin.main.length - 1) return;
+    const x0 = e.clientX;
+    let moved = false;
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+      moved = true;
+      setDraft(ops.rollCut(origin, index, (ev.clientX - x0) / pps, mediaDur));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      if (moved) commitDraft('Roll the cut');
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   const startDrag = (e: RPointerEvent, item: Item, mode: 'move' | 'start' | 'end') => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -430,8 +458,8 @@ export function Timeline() {
     const grabOffset = timeAt(e.clientX) - item.start;
     const dur = item.end - item.start;
     const md = item.mediaId ? mediaDur(item.mediaId) : undefined;
-    // Things an edge can snap to: the playhead, the start, and every other edge.
-    const points: number[] = [0, player.time];
+    // Things an edge can snap to: the playhead, the start, markers, and every other edge.
+    const points: number[] = [0, player.time, ...(origin.markers ?? []).map((m) => m.t)];
     for (const s of layoutMain(origin)) if (s.clip.id !== item.id) points.push(s.start, s.end);
     for (const o of origin.overlays) if (o.id !== item.id) points.push(o.start, o.start + srcDuration(o));
     for (const a of origin.audio) {
@@ -631,6 +659,22 @@ export function Timeline() {
             <div className="tl-corner" style={{ width: LABEL_W }} />
             <div className="tl-ruler-lane" style={{ width: contentW }} onPointerDown={scrub}>
               <Ruler pps={pps} view={{ left: view.left, width: Math.max(0, view.width - LABEL_W) }} duration={derived.duration} fps={fps} />
+              {(doc.markers ?? []).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className="tl-marker"
+                  style={{ left: m.t * pps, background: m.color ?? '#ffd166' }}
+                  title={`${m.label || 'Marker'} at ${formatTime(m.t, true, fps)}. Click to go there, shift-click to remove.`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    if (e.shiftKey) edit((d) => ops.removeMarker(d, m.id), 'Remove marker');
+                    else player.seek(m.t);
+                  }}
+                >
+                  {m.label && pps > 12 ? <span>{m.label}</span> : null}
+                </button>
+              ))}
             </div>
           </div>
           {rows.map((row) => (
@@ -651,6 +695,10 @@ export function Timeline() {
               </div>
               <div className="tl-lane" style={{ width: contentW }} onPointerDown={scrub}>
                 {row.items.map((it) => renderItem(row, it))}
+                {row.kind === 'main' &&
+                  row.items
+                    .filter((it) => it.roll && it.end - it.start > 14 / pps)
+                    .map((it) => <span key={`roll-${it.id}`} className="tl-roll" style={{ left: it.end * pps }} title="Drag to roll the cut: this clip gives what the next one takes" onPointerDown={(e) => startRoll(e, it)} />)}
                 {row.kind === 'main' && !row.items.length && <span className="tl-hint">Add a clip to start the main track</span>}
                 {row.kind === 'caption' && !doc.captions.enabled && <span className="tl-hint">Captions are off</span>}
               </div>
