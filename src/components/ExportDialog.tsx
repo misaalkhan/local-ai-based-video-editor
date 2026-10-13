@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ASPECTS, aspectOf } from '../../shared/types.ts';
 import { api } from '../api.ts';
-import { fail, setUi, useDerived, useDoc, useStore } from '../store.ts';
+import { fail, setUi, toast, useDerived, useDoc, useStore } from '../store.ts';
+import { player } from '../engine/player.ts';
 import { formatBytes, formatDuration } from '../actions.ts';
 import { Icon } from '../icons.tsx';
-import { Button, Field, Modal, Segmented, Select } from '../ui.tsx';
+import { Button, Field, Modal, Segmented, Select, Toggle } from '../ui.tsx';
 
 type Quality = 'high' | 'standard' | 'small';
 
@@ -18,7 +19,21 @@ export function ExportDialog() {
   const [size, setSize] = useState('1080');
   const [quality, setQuality] = useState<Quality>('high');
   const [starting, setStarting] = useState(false);
+  const [allFormats, setAllFormats] = useState(false);
+  const [queue, setQueue] = useState<string[]>([]);
+  const [cover, setCover] = useState<string | null>(null);
   const close = () => setUi({ showExport: false });
+
+  /** The frame at the playhead, saved as a picture next to the videos. */
+  const saveCover = async () => {
+    try {
+      const r = await api.cover(projectId, player.time, width);
+      setCover(r.path);
+      toast(`Cover saved: ${r.path.replace(/^\/Users\/[^/]+/, '~')}`, 'success');
+    } catch (err) {
+      fail(err, 'Cover');
+    }
+  };
 
   const base = ASPECTS[aspect] ?? { width: doc.settings.width, height: doc.settings.height };
   const k = Number(size) / Math.min(base.width, base.height);
@@ -26,16 +41,38 @@ export function ExportDialog() {
   const height = Math.round((base.height * k) / 2) * 2;
   const running = job?.status === 'running';
 
+  const sizeFor = (a: string) => {
+    const b = ASPECTS[a] ?? { width: doc.settings.width, height: doc.settings.height };
+    const kk = Number(size) / Math.min(b.width, b.height);
+    return { width: Math.round((b.width * kk) / 2) * 2, height: Math.round((b.height * kk) / 2) * 2 };
+  };
+
   const start = async () => {
     setStarting(true);
     try {
-      useStore.setState({ exportJob: await api.startExport(projectId, { width, height, quality }) });
+      const formats = allFormats ? [aspect, ...Object.keys(ASPECTS).filter((a) => a !== aspect)] : [aspect];
+      setQueue(formats.slice(1));
+      useStore.setState({ exportJob: await api.startExport(projectId, { ...sizeFor(formats[0]), quality }) });
     } catch (err) {
       fail(err, 'Export');
     } finally {
       setStarting(false);
     }
   };
+
+  // When one format is done, the next in the queue starts.
+  const nextFormat = queue[0];
+  const jobStatus = job?.status;
+  const jobId = job?.id;
+  useEffect(() => {
+    if (jobStatus !== 'done' || !nextFormat) return;
+    setQueue((q) => q.slice(1));
+    void api
+      .startExport(projectId, { ...sizeFor(nextFormat), quality })
+      .then((j) => useStore.setState({ exportJob: j }))
+      .catch((err) => fail(err, 'Export'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobStatus, jobId]);
 
   const empty = derived.duration <= 0;
 
@@ -76,7 +113,7 @@ export function ExportDialog() {
           <span className="export-check">
             <Icon name="check" size={20} />
           </span>
-          <strong>Your video is ready</strong>
+          <strong>{nextFormat ? `Done; ${nextFormat} is next` : 'Your video is ready'}</strong>
           <code title={job.path}>{job.path}</code>
           <span>
             {job.width}×{job.height} · {formatDuration(job.duration ?? 0)}
@@ -110,6 +147,15 @@ export function ExportDialog() {
           <Field label="Quality">
             <Segmented value={quality} options={[{ value: 'high', label: 'High' }, { value: 'standard', label: 'Standard' }, { value: 'small', label: 'Small file' }]} onChange={setQuality} />
           </Field>
+          <div className="row wrap">
+            <Toggle checked={allFormats} onChange={setAllFormats} label="Every format (9:16, 16:9, 1:1, 4:5), one after another" />
+          </div>
+          <div className="row wrap">
+            <Button size="sm" icon="image" disabled={empty} onClick={() => void saveCover()}>
+              Save the frame at the playhead as a picture
+            </Button>
+            {cover && <code className="hint" title={cover}>{cover.split('/').pop()}</code>}
+          </div>
           <div className="kv">
             <span>Output</span>
             <b>{width}×{height} · {doc.settings.fps} fps · MP4 (H.264)</b>

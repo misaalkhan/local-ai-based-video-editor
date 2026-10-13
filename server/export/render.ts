@@ -44,11 +44,18 @@ export function cancelExport(id: string): void {
 
 const even = (v: number) => Math.max(16, Math.round(v / 2) * 2);
 
-function uniquePath(dir: string, name: string): string {
+export function uniquePath(dir: string, name: string, ext = 'mp4'): string {
   const safe = name.replace(/[/\\:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Untitled';
-  let file = path.join(dir, `${safe}.mp4`);
-  for (let i = 2; fs.existsSync(file); i++) file = path.join(dir, `${safe} ${i}.mp4`);
+  let file = path.join(dir, `${safe}.${ext}`);
+  for (let i = 2; fs.existsSync(file); i++) file = path.join(dir, `${safe} ${i}.${ext}`);
   return file;
+}
+
+/** The export folder from the settings, created if need be. */
+export function exportFolder(): string {
+  const dir = getSettings().exportDir.trim() || EXPORT_DIR;
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 function writeFrame(stream: NodeJS.WritableStream, frame: Buffer): Promise<void> {
