@@ -71,6 +71,7 @@ export function TopBar() {
         <IconButton icon="undo" label={canUndo ? `Undo ${undoLabel ?? ''} (⌘Z)` : 'Nothing to undo'} disabled={!canUndo || busy} onClick={undo} />
         <IconButton icon="redo" label="Redo (⇧⌘Z)" disabled={!canRedo || busy} onClick={redo} />
         <IconButton icon="history" label="Version history" onClick={() => setUi({ showHistory: true })} />
+        <IconButton icon="more" label="Keyboard shortcuts (?)" onClick={() => setUi({ showShortcuts: true })} />
       </div>
       <span className="grow" />
       {!connected && (

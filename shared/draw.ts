@@ -57,6 +57,8 @@ export interface RenderOptions {
   bare?: boolean;
   /** A graphic to show at rest, see GraphicEnv.settled. */
   settled?: ID;
+  /** Draw this clip without its colour and effects, to compare before and after. */
+  bypass?: ID;
 }
 
 function fxFilter(fx: ClipFx | undefined, W: number): string {
@@ -289,8 +291,8 @@ function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: 
     }
   }
   const s = toImage(src);
-  const filter = fxFilter(ref.clip.fx, W * o.pixelScale);
-  const fx = ref.clip.fx;
+  const fx = o.bypass === ref.clip.id ? undefined : ref.clip.fx;
+  const filter = fxFilter(fx, W * o.pixelScale);
   ctx.globalAlpha = alpha;
   const graded = fx && needsGrade(fx) ? gradeInto(env, fx, img, s, dst, filter, !!fx.flip) : null;
   if (graded) {

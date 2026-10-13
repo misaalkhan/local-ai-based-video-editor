@@ -138,6 +138,15 @@ export class Player {
     this.dirty = true;
   }
 
+  private bypass: ID | null = null;
+
+  /** Show a clip without its colour and effects while held, to compare. */
+  setBypass(id: ID | null): void {
+    if (id === this.bypass) return;
+    this.bypass = id;
+    this.dirty = true;
+  }
+
   play(): void {
     if (!this.data || this.duration <= 0) return;
     if (this.time >= this.duration - 0.02) this.time = 0;
@@ -621,6 +630,7 @@ export class Player {
       pixelScale: scale,
       // While paused, the selected graphic is shown complete even on its first frame, so it can be seen and placed.
       settled: this.playing ? undefined : this.editing ?? undefined,
+      bypass: this.bypass ?? undefined,
     });
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.dirty = false;

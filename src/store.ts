@@ -45,6 +45,7 @@ export interface UiState {
   safeZones: boolean;
   showExport: boolean;
   showHistory: boolean;
+  showShortcuts: boolean;
 }
 
 export interface EditorState {
@@ -89,6 +90,7 @@ const DEFAULT_UI: UiState = {
   safeZones: false,
   showExport: false,
   showHistory: false,
+  showShortcuts: false,
 };
 
 export const useStore = create<EditorState>(() => ({

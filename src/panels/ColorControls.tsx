@@ -8,6 +8,7 @@ import type { CurvePoint, Curves, HslBandName } from '../../shared/color.ts';
 import { api, uploadLut } from '../api.ts';
 import { fail, toast } from '../store.ts';
 import { runTool } from '../actions.ts';
+import { player } from '../engine/player.ts';
 import { Button, Field, Section, Segmented, Select, Slider } from '../ui.tsx';
 
 const pct = (v: number) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`;
@@ -37,7 +38,17 @@ export function LightAndColour({ fx, set, commit, clipId }: Props) {
           <Button size="sm" icon="sparkles" onClick={() => void runTool('set_clip_look', { clip_id: clipId, auto: true })}>
             Auto
           </Button>
-          <span className="hint">Reads the clip and sets blacks, whites and exposure.</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="eye"
+            title="Hold to see the clip as recorded"
+            onPointerDown={() => player.setBypass(clipId)}
+            onPointerUp={() => player.setBypass(null)}
+            onPointerLeave={() => player.setBypass(null)}
+          >
+            Before
+          </Button>
         </div>
       )}
       {row('Exposure', 'exposure', -2, 2, 'stops', (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`)}

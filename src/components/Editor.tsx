@@ -17,6 +17,7 @@ import { ChatPanel } from './ChatPanel.tsx';
 import { TranscriptPanel } from './TranscriptPanel.tsx';
 import { ExportDialog } from './ExportDialog.tsx';
 import { HistoryDialog } from './HistoryDialog.tsx';
+import { ShortcutsDialog } from './ShortcutsDialog.tsx';
 import { MediaPanel } from '../panels/MediaPanel.tsx';
 import { MusicPanel } from '../panels/MusicPanel.tsx';
 import { SfxPanel } from '../panels/SfxPanel.tsx';
@@ -146,7 +147,13 @@ function useShortcuts(): void {
         player.step((key === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 10 : 1));
       } else if (key === 'home') player.seek(0);
       else if (key === 'end') player.seek(player.duration);
-      else if (key === 'escape') select(null);
+      else if (key === 'escape') {
+        if (useStore.getState().ui.showShortcuts) setUi({ showShortcuts: false });
+        else select(null);
+      } else if (key === '?' || (key === '/' && e.shiftKey)) {
+        e.preventDefault();
+        setUi({ showShortcuts: !useStore.getState().ui.showShortcuts });
+      }
       else if (key === '=' || key === '+') setUi({ pxPerSec: Math.min(400, useStore.getState().ui.pxPerSec * 1.3) });
       else if (key === '-') setUi({ pxPerSec: Math.max(4, useStore.getState().ui.pxPerSec / 1.3) });
     };
@@ -252,6 +259,7 @@ export function Editor({ projectId }: { projectId: string }) {
       <Timeline />
       {ui.showExport && <ExportDialog />}
       {ui.showHistory && <HistoryDialog />}
+      {ui.showShortcuts && <ShortcutsDialog />}
     </div>
   );
 }
