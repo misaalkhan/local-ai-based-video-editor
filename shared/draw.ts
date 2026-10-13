@@ -203,6 +203,39 @@ function pictureCopy(env: Env, img: LayerImage, s: Rect, dst: Rect, slot: string
   return { canvas: sc.canvas, w, h };
 }
 
+/**
+ * Local contrast, the high-pass overlay trick: an inverted, blurred copy laid
+ * over the picture with the overlay blend pushes each pixel away from its
+ * surroundings. Negative amounts lay the blurred copy itself over, which
+ * softens.
+ */
+function drawClarity(env: Env, img: LayerImage, s: Rect, dst: Rect, amount: number, alpha: number, filter: string, flip: boolean): void {
+  const { ctx, W, o } = env;
+  const k = clamp(Math.abs(amount), 0, 1);
+  const radius = Math.max(1, Math.round(0.012 * W * o.pixelScale));
+  const copy = pictureCopy(env, img, s, dst, 'clarity', flip, `${filter ? `${filter} ` : ''}blur(${Math.max(1, radius / 2)}px)${amount > 0 ? ' invert(1)' : ''}`, 2);
+  if (!copy) return;
+  ctx.save();
+  ctx.globalCompositeOperation = amount > 0 ? 'overlay' : 'source-over';
+  ctx.globalAlpha = alpha * (amount > 0 ? 0.55 * k : 0.5 * k);
+  ctx.drawImage(copy.canvas as never, 0, 0, copy.w, copy.h, dst.x, dst.y, dst.w, dst.h);
+  ctx.restore();
+}
+
+/** Sharpening: the same trick with a tiny radius, so only edges move. */
+function drawSharpen(env: Env, img: LayerImage, s: Rect, dst: Rect, amount: number, alpha: number, filter: string, flip: boolean): void {
+  const { ctx, W, o } = env;
+  const k = clamp(amount, 0, 1);
+  const radius = Math.max(1, Math.round(0.0015 * W * o.pixelScale));
+  const copy = pictureCopy(env, img, s, dst, 'sharpen', flip, `${filter ? `${filter} ` : ''}blur(${radius}px) invert(1)`, 1);
+  if (!copy) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = alpha * 0.6 * k;
+  ctx.drawImage(copy.canvas as never, 0, 0, copy.w, copy.h, dst.x, dst.y, dst.w, dst.h);
+  ctx.restore();
+}
+
 /** Glow: a blurred, brightened copy of the picture added over it, so highlights bleed. */
 function drawBloom(env: Env, img: LayerImage, s: Rect, dst: Rect, amount: number, alpha: number, filter: string, flip: boolean): void {
   const { ctx, W, o } = env;
@@ -331,6 +364,8 @@ function drawClip(env: Env, ref: VisualRef, img: LayerImage | undefined, alpha: 
     ctx.fillRect(dst.x, dst.y, dst.w, dst.h);
     ctx.restore();
   }
+  if (fx?.clarity) drawClarity(env, img, s, dst, fx.clarity, alpha, filter, !!fx.flip);
+  if (fx?.sharpen) drawSharpen(env, img, s, dst, fx.sharpen, alpha, filter, !!fx.flip);
   if (fx?.bloom) drawBloom(env, img, s, dst, fx.bloom, alpha, filter, !!fx.flip);
   if (fx?.rgbSplit) drawRgbSplit(env, img, s, dst, fx.rgbSplit, alpha, !!fx.flip);
   if (fx?.grain) drawGrain(env, fx.grain, env.t, dst, alpha);

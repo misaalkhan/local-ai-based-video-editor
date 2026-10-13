@@ -59,6 +59,8 @@ export function LightAndColour({ fx, set, commit, clipId }: Props) {
       {row('Temperature', 'temperature', -1, 1, 'blue to amber')}
       {row('Tint', 'tint', -1, 1, 'green to magenta')}
       {row('Vibrance', 'vibrance', -1, 1)}
+      {row('Clarity', 'clarity', -1, 1, 'soften to crisp')}
+      {row('Sharpen', 'sharpen', 0, 1)}
     </>
   );
 }

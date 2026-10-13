@@ -52,6 +52,10 @@ export interface ClipFx {
   stabilize?: number;
   /** Glow on the bright parts, 0..1. */
   bloom?: number;
+  /** Local contrast, -1..1: positive makes textures and edges stand out, negative softens them. */
+  clarity?: number;
+  /** Edge sharpening, 0..1. */
+  sharpen?: number;
   /** Colour channels pulled apart sideways, as a fraction of the frame width (0.01 is a strong fringe). */
   rgbSplit?: number;
   brightness?: number;
