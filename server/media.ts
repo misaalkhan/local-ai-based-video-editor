@@ -120,7 +120,8 @@ export async function importMedia(
     addedAt: Date.now(),
     proxy: 'pending',
     analysis: info.hasAudio ? 'pending' : 'skipped',
-    transcript: info.hasAudio && opts.origin !== 'sfx' && opts.origin !== 'sequence' ? 'pending' : 'skipped',
+    // Stock footage is b-roll; a long archive film is not worth transcribing.
+    transcript: info.hasAudio && opts.origin !== 'sfx' && opts.origin !== 'sequence' && !(opts.origin === 'stock' && info.duration > 300) ? 'pending' : 'skipped',
     rev: 1,
     tag: nextTag(p),
   };

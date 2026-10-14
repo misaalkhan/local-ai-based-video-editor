@@ -8,6 +8,10 @@ import { addMineSfx, ensureLibraryDirs, listLuts, listSfx, lutPath, mineSfxPath,
 import { listVoices } from '../tts.ts';
 import { ToolError, callTool } from './index.ts';
 import { searchGifs } from '../gifs.ts';
+import { STOCK_SOURCES, addStock, availableSources, searchStock, stockItem } from '../stock.ts';
+import type { StockKind, StockSource } from '../stock.ts';
+import { createProject, summarize } from '../store.ts';
+import { layOut } from '../studio.ts';
 import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
 import type { FoundSound } from '../sounds.ts';
 import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
@@ -176,5 +180,53 @@ export function register(r: Router): void {
     } catch (err) {
       throw new HttpError(400, (err as Error).message);
     }
+  });
+
+  // Public footage and pictures: the Find footage dialog on the home screen and the Media tab.
+  r.get('/api/stock/sources', (c) => {
+    const open = availableSources();
+    c.json({ sources: STOCK_SOURCES.map((s) => ({ ...s, available: open.includes(s.id) })) });
+  });
+
+  r.get('/api/stock/search', async (c) => {
+    const q = String(c.query.get('q') ?? '');
+    const kind = (['video', 'image', 'any'].includes(String(c.query.get('kind'))) ? String(c.query.get('kind')) : 'any') as StockKind | 'any';
+    const sources = String(c.query.get('sources') ?? '')
+      .split(',')
+      .filter((x): x is StockSource => STOCK_SOURCES.some((s) => s.id === x));
+    const limit = Number(c.query.get('limit') ?? 24);
+    c.json(await searchStock({ q, kind, sources: sources.length ? sources : undefined, limit: Number.isFinite(limit) ? limit : 24 }));
+  });
+
+  // Download one found item into a project and prepare it like an upload.
+  r.post('/api/projects/:pid/stock', async (c) => {
+    const p = getProject(c.params.pid);
+    const body = await c.body<{ id?: string }>();
+    const item = body.id ? stockItem(body.id) : undefined;
+    if (!item) throw new HttpError(400, 'search first, then pick an item from the results');
+    try {
+      c.json({ media: await addStock(p, item) }, 201);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
+  });
+
+  // A new project from found items, laid out on the main track in the order picked.
+  r.post('/api/stock/project', async (c) => {
+    const body = await c.body<{ name?: string; aspect?: string; ids?: string[] }>();
+    const items = (body.ids ?? []).map((id) => stockItem(id)).filter((x): x is NonNullable<typeof x> => !!x);
+    if (!items.length) throw new HttpError(400, 'pick at least one item');
+    const p = createProject((body.name ?? '').trim() || `Footage: ${items[0].title.slice(0, 40)}`, body.aspect);
+    const errors: string[] = [];
+    const added = [];
+    for (const it of items) {
+      try {
+        added.push(await addStock(p, it));
+      } catch (err) {
+        errors.push(`${it.title}: ${(err as Error).message}`);
+      }
+    }
+    layOut(p, added.map((m) => m.id));
+    c.json({ project: summarize(p), added: added.length, errors }, 201);
   });
 }

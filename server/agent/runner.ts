@@ -87,8 +87,9 @@ function firstLine(content: unknown): string {
 }
 
 function runClaude(p: Project, run: Run, prompt: string, resume: string | undefined, onUpdate: () => void, actions: ChatAction[], live: { text: string }): Promise<Outcome> {
-  // The planner may read the web for platform news when the user allows it; the editor never needs to.
-  const web = run.planner && getProfile().allowWeb;
+  // Both assistants may read the web when the user allows it (Plan page): the planner for platform news,
+  // the editor for research behind a script. Reddit threads and public footage have their own tools.
+  const web = getProfile().allowWeb;
   return new Promise((resolve) => {
     if (!CLAUDE) {
       resolve({ text: '', notes: [], error: 'The claude command-line tool was not found on this Mac.' });

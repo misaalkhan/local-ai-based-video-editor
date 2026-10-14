@@ -12,17 +12,21 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [exportDefault, setExportDefault] = useState('');
   const [key, setKey] = useState('');
   const [fsKey, setFsKey] = useState('');
+  const [pexels, setPexels] = useState('');
+  const [pixabay, setPixabay] = useState('');
   useEffect(() => {
     api.settings().then((r) => {
       setS(r.settings);
       setExportDefault(r.exportDefault);
       setKey(r.settings.tenorKey);
       setFsKey(r.settings.freesoundKey ?? '');
+      setPexels(r.settings.pexelsKey ?? '');
+      setPixabay(r.settings.pixabayKey ?? '');
     }).catch(fail);
   }, []);
   const save = () => {
     if (!s) return;
-    api.saveSettings({ assistantModel: s.assistantModel, exportDir: s.exportDir, tenorKey: key, freesoundKey: fsKey })
+    api.saveSettings({ assistantModel: s.assistantModel, exportDir: s.exportDir, tenorKey: key, freesoundKey: fsKey, pexelsKey: pexels, pixabayKey: pixabay })
       .then(() => {
         toast('Settings saved.', 'success');
         onClose();
@@ -47,18 +51,28 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           <Field label="Export folder" hint={`empty = ${exportDefault}`}>
             <TextInput value={s.exportDir} placeholder={exportDefault} onChange={(v) => setS({ ...s, exportDir: v })} />
           </Field>
-          <Field label="Tenor API key" hint="turns on GIF search">
+          <Field label="Tenor API key" hint={key && /^•+$/.test(key) ? 'set, kept in your Keychain' : 'turns on GIF search'}>
             <TextInput value={key} placeholder="paste a key to enable reaction GIFs" onChange={setKey} />
           </Field>
           <p className="hint">
-            A Tenor key is free: in Google Cloud Console create a project, enable the Tenor API and make an API key. GIFs are searched only when you or the assistant ask for one.
+            A Tenor key is free: in Google Cloud Console create a project, enable the Tenor API and make an API key (the README has the steps). GIFs are searched only when you or the assistant ask for one. Clear the field to remove the key.
           </p>
-          <Field label="Freesound API key" hint="turns on sound search">
+          <Field label="Freesound API key" hint={fsKey && /^•+$/.test(fsKey) ? 'set, kept in your Keychain' : 'turns on sound search'}>
             <TextInput value={fsKey} placeholder="paste a key to search for more sounds" onChange={setFsKey} />
           </Field>
           <p className="hint">
             A Freesound key is free: sign in at freesound.org, open "API keys" in your account and create one. Only CC0 and CC BY sounds are shown; a CC BY sound keeps its credit line for your caption.
           </p>
+          <Field label="Pexels API key" hint={pexels && /^•+$/.test(pexels) ? 'set, kept in your Keychain' : 'stock video and photos'}>
+            <TextInput value={pexels} placeholder="paste a key to search Pexels" onChange={setPexels} />
+          </Field>
+          <Field label="Pixabay API key" hint={pixabay && /^•+$/.test(pixabay) ? 'set, kept in your Keychain' : 'stock video and photos'}>
+            <TextInput value={pixabay} placeholder="paste a key to search Pixabay" onChange={setPixabay} />
+          </Field>
+          <p className="hint">
+            Pexels and Pixabay keys are free and instant: sign up at pexels.com/api and pixabay.com/api/docs, copy the key. Their footage is free to use in your videos with no credit. Find footage also searches Wikimedia Commons, Openverse, the Internet Archive and NASA without any key.
+          </p>
+          <p className="hint">Keys are saved in your Mac's Keychain (item "Local Studio"), never in a file, and never sent back to the browser. Everything else in Settings is a plain preference.</p>
         </div>
       )}
     </Modal>

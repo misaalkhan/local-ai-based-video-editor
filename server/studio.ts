@@ -10,6 +10,7 @@ import type { Project } from './store.ts';
 import { commitDoc, getProject, mediaDir, nextTag, putMedia } from './store.ts';
 import type { ID, MediaAsset, PlanItem, PlatformNote, Profile, Recipe, ReferenceCard, Settings, Studio } from '../shared/types.ts';
 import { insertMain, makeClip, setSettings, uid } from '../shared/ops.ts';
+import { getSecret, setSecret } from './secrets.ts';
 
 export const LIBRARY_ID = 'library';
 const DIR = path.join(DATA_DIR, 'studio');
@@ -33,14 +34,45 @@ function write(name: string, value: unknown): void {
 
 const EMPTY_SETTINGS: Settings = { assistantModel: 'sonnet', exportDir: '', tenorKey: '', freesoundKey: '', updatedAt: 0 };
 
+/** The keys that live in the Keychain rather than in settings.json. */
+const SECRET_KEYS: ('tenorKey' | 'freesoundKey' | 'pexelsKey' | 'pixabayKey')[] = ['tenorKey', 'freesoundKey', 'pexelsKey', 'pixabayKey'];
+const secretName = (k: string) => k.replace(/Key$/, '');
+
+/** Keys saved by an older version in the file are moved into the Keychain once, then dropped from the file. */
+function migrateSecrets(stored: Partial<Settings>): Partial<Settings> {
+  let moved = false;
+  for (const k of SECRET_KEYS) {
+    const v = stored[k];
+    if (typeof v === 'string' && v.trim()) {
+      try {
+        setSecret(secretName(k), v);
+        moved = true;
+      } catch (err) {
+        console.warn(`[settings] could not move ${k} to the Keychain: ${(err as Error).message}`);
+        continue;
+      }
+    }
+    delete stored[k];
+  }
+  if (moved) write('settings.json', stored);
+  return stored;
+}
+
 export function getSettings(): Settings {
-  return { ...EMPTY_SETTINGS, ...read<Partial<Settings>>('settings.json', {}) };
+  const stored = migrateSecrets(read<Partial<Settings>>('settings.json', {}));
+  return { ...EMPTY_SETTINGS, ...stored, tenorKey: getSecret('tenor'), freesoundKey: getSecret('freesound'), pexelsKey: getSecret('pexels'), pixabayKey: getSecret('pixabay') };
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
-  const next = { ...getSettings(), ...patch, updatedAt: Date.now() };
-  write('settings.json', next);
-  return next;
+  const rest = { ...patch };
+  for (const k of SECRET_KEYS) {
+    if (typeof rest[k] === 'string') setSecret(secretName(k), rest[k] as string);
+    delete rest[k];
+  }
+  const file = { ...read<Partial<Settings>>('settings.json', {}) };
+  for (const k of SECRET_KEYS) delete file[k];
+  write('settings.json', { ...EMPTY_SETTINGS, ...file, ...rest, tenorKey: undefined, freesoundKey: undefined, pexelsKey: undefined, pixabayKey: undefined, updatedAt: Date.now() });
+  return getSettings();
 }
 
 export function getProfile(): Profile {

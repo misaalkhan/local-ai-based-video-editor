@@ -66,7 +66,8 @@ function expandPath(p: string): string[] {
 }
 
 /** Settings as shown to the browser: keys are never sent back, only whether one is set. */
-const masked = (s: Settings): Settings => ({ ...s, tenorKey: s.tenorKey ? '•'.repeat(8) : '', freesoundKey: s.freesoundKey ? '•'.repeat(8) : '' });
+const mask = (v: string | undefined) => (v ? '•'.repeat(8) : '');
+const masked = (s: Settings): Settings => ({ ...s, tenorKey: mask(s.tenorKey), freesoundKey: mask(s.freesoundKey), pexelsKey: mask(s.pexelsKey), pixabayKey: mask(s.pixabayKey) });
 
 export function registerRoutes(r: Router): void {
   r.get('/api/status', (c) => c.json(toolStatus()));
@@ -117,7 +118,14 @@ export function registerRoutes(r: Router): void {
     if (typeof body.exportDir === 'string') patch.exportDir = body.exportDir.trim().replace(/^~(?=\/|$)/, process.env.HOME ?? '~');
     if (typeof body.tenorKey === 'string' && !/^•+$/.test(body.tenorKey)) patch.tenorKey = body.tenorKey.trim();
     if (typeof body.freesoundKey === 'string' && !/^•+$/.test(body.freesoundKey)) patch.freesoundKey = body.freesoundKey.trim();
-    const s = saveSettings(patch);
+    if (typeof body.pexelsKey === 'string' && !/^•+$/.test(body.pexelsKey)) patch.pexelsKey = body.pexelsKey.trim();
+    if (typeof body.pixabayKey === 'string' && !/^•+$/.test(body.pixabayKey)) patch.pixabayKey = body.pixabayKey.trim();
+    let s: Settings;
+    try {
+      s = saveSettings(patch);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
     c.json({ settings: masked(s), exportDefault: EXPORT_DIR });
   });
 

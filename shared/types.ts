@@ -506,7 +506,11 @@ export interface MediaAsset {
   /** Share of the audio that is above the noise floor, 0..1. */
   soundRatio?: number;
   /** Where the file came from when it was not added by the user. */
-  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme' | 'still' | 'sequence';
+  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme' | 'still' | 'sequence' | 'stock';
+  /** Credit line owed in the post when the file came from a stock source under an attribution licence; empty when nothing is owed. */
+  credit?: string;
+  /** Where a stock file came from on the web. */
+  sourceUrl?: string;
   /** How many different voices were heard, when speaker labels are available. */
   speakers?: number;
   /** Short handle the chat agent uses for this file's words ("a", "b", ...). */
@@ -719,6 +723,9 @@ export interface Settings {
   tenorKey: string;
   /** Freesound API key for searching more sounds; empty means the search is off. */
   freesoundKey?: string;
+  /** Pexels and Pixabay keys for stock footage search; the keyless sources work without them. */
+  pexelsKey?: string;
+  pixabayKey?: string;
   updatedAt: number;
 }
 

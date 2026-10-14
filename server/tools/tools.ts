@@ -28,6 +28,9 @@ import { analyzeFaces, faceCoverage } from '../faces.ts';
 import { listLibrary, listLuts, listSfx, readLut, searchSfx } from '../library.ts';
 import { listVoices, synthesize } from '../tts.ts';
 import { fetchGif, found as foundGifs, searchGifs } from '../gifs.ts';
+import { STOCK_SOURCES, addStock, availableSources, searchStock, stockItem } from '../stock.ts';
+import type { StockKind, StockSource } from '../stock.ts';
+import { describeThreads, searchReddit } from '../reddit.ts';
 import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
 import type { FoundSound } from '../sounds.ts';
 import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
@@ -1749,6 +1752,64 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
       }
       save(ctx, d, 'add_meme', `Meme "${t.name}" at ${sec(start)}s`);
       return { text: `Added the "${t.name}" meme as b-roll ${overlayId} ${sec(start)}-${sec(start + duration)}s${ids.length ? ` with text ${ids.join(', ')}` : ''}.` };
+    },
+  },
+  {
+    name: 'find_footage',
+    description: 'Search public footage and pictures the user may use: Pexels and Pixabay (free to use, when their keys are set), Wikimedia Commons and Openverse (public domain and Creative Commons), the Internet Archive (old films, historical footage) and NASA (space, Earth, science). Describe what the shot should show, concretely and in a few words ("woman walking on beach at sunset", "city traffic at night", "coffee pour close up"); one search per shot you need. Results carry a licence: CC0, public domain, Pexels and Pixabay need no credit; CC BY and CC BY-SA need the credit line, which add_footage keeps with the file and you pass on for the post. Then add_footage with the ids you want. This is for b-roll and illustration; it cannot fetch copyrighted shows, films or music.',
+    schema: obj({ query: S('What the footage should show.'), kind: S('video, image or any (default video).', ['video', 'image', 'any']), sources: { type: 'array', items: { type: 'string', enum: STOCK_SOURCES.map((x) => x.id) }, description: 'Limit to these sources; default: all that are set up except the Internet Archive and NASA, which you add for history or space.' }, limit: N('How many to list, default 10.') }, ['query']),
+    label: (a) => `Searching footage for "${str(a.query)}"`,
+    readOnly: true,
+    run: async (_ctx, a) => {
+      const q = str(a.query).trim();
+      const open = availableSources();
+      const asked = Array.isArray(a.sources) ? (a.sources as string[]).filter((x): x is StockSource => open.includes(x as StockSource)) : [];
+      const sources = asked.length ? asked : open.filter((x) => x !== 'archive' && x !== 'nasa');
+      const kind = (['video', 'image', 'any'].includes(str(a.kind)) ? str(a.kind) : 'video') as StockKind | 'any';
+      const r = await searchStock({ q, kind, sources, limit: optNum(a.limit, 'limit') ?? 10 });
+      const keyed = STOCK_SOURCES.filter((x) => x.key && !open.includes(x.id)).map((x) => x.name);
+      const note = keyed.length ? ` (${keyed.join(' and ')} would add stock footage: free keys in Settings)` : '';
+      if (!r.items.length) return { text: `Nothing found for "${q}" in ${sources.join(', ')}${note}.${r.errors.length ? ` Errors: ${r.errors.join('; ')}` : ''} Try plainer words, kind=any, or add the Internet Archive and NASA.` };
+      const dur = (x: number | undefined) => (x ? `${x >= 60 ? `${Math.floor(x / 60)}m${Math.round(x % 60)}s` : `${x.toFixed(0)}s`}` : '');
+      return { text: `Footage for "${q}" (add_footage with the ids)${note}:\n${r.items.map((it) => `  ${it.id}  ${it.kind} ${it.width && it.height ? `${it.width}x${it.height}` : ''} ${dur(it.duration)}  "${clip(it.title, 70)}"  ${it.license}${it.credit ? ' (credit needed)' : ''}${it.size ? ` ${(it.size / 1048576).toFixed(0)} MB` : ''}`).join('\n')}${r.errors.length ? `\n(${r.errors.join('; ')})` : ''}` };
+    },
+  },
+  {
+    name: 'add_footage',
+    description: 'Download found footage or pictures (ids from find_footage) into the project and prepare them like uploads. Each becomes a media file with a letter; use add_clip (with source_start/source_end to take the best few seconds of a long clip) or add_broll to use it. The file keeps its licence and credit line; a credit, when there is one, goes in the post caption and you tell the user. Big files take a while; the tool waits.',
+    schema: obj({ ids: { type: 'array', items: { type: 'string' }, description: 'One or more ids from find_footage.' } }, ['ids']),
+    label: (a) => `Fetching ${Array.isArray(a.ids) ? a.ids.length : 1} footage file${Array.isArray(a.ids) && a.ids.length === 1 ? '' : 's'}`,
+    run: async (ctx, a) => {
+      const ids = (Array.isArray(a.ids) ? (a.ids as unknown[]) : [a.ids]).map((x) => String(x));
+      if (!ids.length) bad('Give at least one id from find_footage.');
+      const lines: string[] = [];
+      const credits: string[] = [];
+      for (const id of ids) {
+        const item = stockItem(id);
+        if (!item) {
+          lines.push(`  ${id}: not in the last search results; search again.`);
+          continue;
+        }
+        try {
+          const m = await addStock(ctx.p, item);
+          lines.push(`  [${m.tag}] "${m.name}" (${m.kind}${m.duration ? `, ${sec(m.duration)}s` : ''}, ${m.width}x${m.height}) from ${STOCK_SOURCES.find((x) => x.id === item.source)?.name ?? item.source}, ${item.license}`);
+          if (item.credit) credits.push(item.credit);
+        } catch (err) {
+          lines.push(`  ${id}: ${(err as Error).message}`);
+        }
+      }
+      return { text: `Fetched:\n${lines.join('\n')}${credits.length ? `\nCredits for the post caption:\n${credits.map((c) => `  ${c}`).join('\n')}` : ''}\nVideos are being prepared (preview, then transcript); add_clip works right away.` };
+    },
+  },
+  {
+    name: 'research_reddit',
+    description: 'What people are saying on Reddit about something: the biggest threads matching the words, with their top comments, scores and dates. For a commentary or reaction video: search the show, the episode, the controversy ("summer i turned pretty finale", "bridgerton season 4 casting", subreddit optional), read the digest, then write the script in your own words: name the takes, the jokes and the mood, quote a comment only briefly and as a comment. Use days to keep it recent and min_score to skip noise. Comes from a public archive of Reddit, so the newest hours may be missing.',
+    schema: obj({ query: S('Words to search for.'), subreddit: S('Limit to one subreddit, e.g. television.'), limit: N('Threads to read, default 6, max 12.'), comments: N('Top comments per thread, default 8.'), days: N('Only threads from the last N days.'), min_score: N('Skip threads under this score.') }, ['query']),
+    label: (a) => `Reading Reddit on "${str(a.query)}"`,
+    readOnly: true,
+    run: async (_ctx, a) => {
+      const threads = await searchReddit({ query: str(a.query), subreddit: a.subreddit !== undefined ? str(a.subreddit) : undefined, limit: optNum(a.limit, 'limit'), comments: optNum(a.comments, 'comments'), days: optNum(a.days, 'days'), minScore: optNum(a.min_score, 'min_score') }).catch((err: Error) => bad(err.message));
+      return { text: `REDDIT on "${str(a.query)}" (${threads.length} threads, biggest first):\n\n${describeThreads(threads)}` };
     },
   },
   {

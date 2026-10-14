@@ -6,6 +6,7 @@ import { fail, useStore } from '../store.ts';
 import { addToTimeline, draggable, formatBytes, formatDuration, importFiles, importFromDisk, looksLikeMusic } from '../actions.ts';
 import { Icon, Spinner } from '../icons.tsx';
 import { Button, Empty, Menu, MenuItem } from '../ui.tsx';
+import { StockDialog } from '../components/StockDialog.tsx';
 
 function statusOf(m: MediaAsset): { text: string; busy: boolean; error?: boolean } | null {
   if (m.proxy === 'error') return { text: m.error ?? 'Could not prepare this file', busy: false, error: true };
@@ -100,6 +101,7 @@ export function MediaPanel({ library = false }: { library?: boolean } = {}) {
   const projectId = useStore((s) => s.projectId)!;
   const media = useStore((s) => s.media);
   const uploads = useStore((s) => s.uploads);
+  const [stock, setStock] = useState(false);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const list = Object.values(media)
@@ -140,9 +142,11 @@ export function MediaPanel({ library = false }: { library?: boolean } = {}) {
             <>
               <MenuItem icon="folder" hint="no copy" onClick={() => { close(); void importFromDisk(); }}>Choose files on this Mac…</MenuItem>
               <MenuItem icon="upload" hint="copies" onClick={() => { close(); input.current?.click(); }}>Upload files…</MenuItem>
+              <MenuItem icon="image" hint="public" onClick={() => { close(); setStock(true); }}>Find footage online…</MenuItem>
             </>
           )}
         </Menu>
+        {stock && <StockDialog projectId={projectId} onClose={() => setStock(false)} />}
         <input ref={input} type="file" multiple hidden accept="video/*,audio/*,image/*,.mov,.mkv,.m4v,.mts,.heic" onChange={(e) => { if (e.target.files) void importFiles([...e.target.files]); e.target.value = ''; }} />
       </header>
       <div className="panel-body">

@@ -416,6 +416,7 @@ export function describeMedia(m: MediaAsset): string {
   else if (m.kind === 'video') parts.push('silent');
   if (m.faces === 'done') parts.push('faces tracked');
   if (m.insights) parts.push(`notes: ${m.insights.summary}${m.insights.tags.length ? ` [${m.insights.tags.join(', ')}]` : ''}`);
+  if (m.credit) parts.push(`credit for the post: ${m.credit}`);
   return parts.join(', ');
 }
 

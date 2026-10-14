@@ -89,6 +89,31 @@ export interface MemeTemplate {
   boxes: number;
 }
 
+export interface StockItem {
+  id: string;
+  source: 'commons' | 'archive' | 'nasa' | 'openverse' | 'pexels' | 'pixabay';
+  kind: 'video' | 'image';
+  title: string;
+  thumb: string;
+  url: string;
+  pageUrl: string;
+  width?: number;
+  height?: number;
+  duration?: number;
+  size?: number;
+  license: string;
+  author?: string;
+  credit: string;
+}
+
+export interface StockSourceInfo {
+  id: StockItem['source'];
+  name: string;
+  note: string;
+  key?: string;
+  available: boolean;
+}
+
 export interface GifEntry {
   id: string;
   url: string;
@@ -172,6 +197,10 @@ export const api = {
   sfx: () => request<{ sfx: SfxEntry[] }>('GET', '/api/library/sfx').then((r) => r.sfx),
   voices: () => request<{ voices: { id: string; name: string }[] }>('GET', '/api/library/voices').then((r) => r.voices),
   gifs: (q: string) => request<{ gifs: GifEntry[] }>('GET', `/api/gifs?q=${encodeURIComponent(q)}`).then((r) => r.gifs),
+  stockSources: () => request<{ sources: StockSourceInfo[] }>('GET', '/api/stock/sources').then((r) => r.sources),
+  stockSearch: (q: string, kind: 'video' | 'image' | 'any', sources: string[]) => request<{ items: StockItem[]; errors: string[] }>('GET', `/api/stock/search?q=${encodeURIComponent(q)}&kind=${kind}&sources=${sources.join(',')}&limit=30`),
+  addStock: (pid: string, id: string) => request<{ media: MediaAsset }>('POST', `/api/projects/${pid}/stock`, { id }).then((r) => r.media),
+  stockProject: (name: string, aspect: string, ids: string[]) => request<{ project: ProjectSummary; added: number; errors: string[] }>('POST', '/api/stock/project', { name, aspect, ids }),
   sfxFavourite: (id: string, on: boolean) => request('PUT', `/api/library/sfx/${encodeURIComponent(id)}/favourite`, { on }),
   sfxRemove: (id: string) => request('DELETE', `/api/library/sfx/${encodeURIComponent(id)}`),
   soundsSearch: (q: string) => request<{ sounds: FoundSound[] }>('GET', `/api/sounds/search?q=${encodeURIComponent(q)}`).then((r) => r.sounds),

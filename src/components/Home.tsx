@@ -11,6 +11,7 @@ import { formatBytes, formatDuration } from '../actions.ts';
 import { Icon, Spinner } from '../icons.tsx';
 import { Button, Menu, MenuItem } from '../ui.tsx';
 import { SettingsDialog } from './SettingsDialog.tsx';
+import { StockDialog } from './StockDialog.tsx';
 
 const MEDIA_ACCEPT = 'video/*,audio/*,image/*,.mov,.mkv,.m4v,.mts,.heic';
 
@@ -40,6 +41,7 @@ export function Home() {
   const [busy, setBusy] = useState(false);
   const [over, setOver] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showStock, setShowStock] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   const refresh = () => api.listProjects().then(setProjects).catch(fail);
@@ -99,9 +101,11 @@ export function Home() {
         </div>
         <span className="home-note">Everything stays on this Mac. Only chat requests go to Claude.</span>
         <span className="grow" />
+        <Button icon="image" onClick={() => setShowStock(true)}>Find footage</Button>
         <Button icon="layers" onClick={() => navigate('/plan')}>Plan and footage</Button>
         <Button icon="sliders" onClick={() => setShowSettings(true)}>Settings</Button>
         {showSettings && <SettingsDialog onClose={() => setShowSettings(false)} />}
+        {showStock && <StockDialog onClose={() => setShowStock(false)} />}
       </header>
 
       <main className="home-main">
