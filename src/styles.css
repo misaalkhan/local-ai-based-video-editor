@@ -3264,3 +3264,56 @@ input[type='range']::-webkit-slider-thumb {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Settings: keys with a Test button and the route to each key */
+.settings-heading {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.keyrow {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.keyrow .row {
+  margin-bottom: 0;
+}
+.keyrow .row .input,
+.keyrow .row input {
+  flex: 1;
+  min-width: 0;
+}
+.keyrow .field {
+  margin-bottom: 0;
+}
+.keyrow-result {
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--raised);
+}
+.keyrow-result.ok {
+  color: var(--green);
+}
+.keyrow-result.bad {
+  color: var(--red);
+}
+.keyrow-steps {
+  margin-bottom: 0;
+  line-height: 1.5;
+}
+.keyrow-steps a {
+  color: var(--accent-hover);
+}
+.keyrow .field-label {
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+.keyrow .field-label .field-hint {
+  margin-left: 0;
+}

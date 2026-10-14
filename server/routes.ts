@@ -29,6 +29,8 @@ const beatCache = new Map<string, Beats>();
 import { removeObjectTrack, trackObject } from './objects.ts';
 import { importMedia, proxyFile, removeMedia, resumePending, retranscribe } from './media.ts';
 import { MEDIA_EXT, extOf } from './probe.ts';
+import { checkKey } from './keycheck.ts';
+import type { Service } from './keycheck.ts';
 import { addPlanItem, copyMedia, getRecipes, getSettings, getStudio, layOut, removePlanItem, removeRecipe, removeReference, saveProfile, saveSettings, updatePlanItem } from './studio.ts';
 import type { PlanItem, Profile, Settings } from '../shared/types.ts';
 import { EXPORT_DIR } from './config.ts';
@@ -129,6 +131,19 @@ export function registerRoutes(r: Router): void {
       throw new HttpError(400, (err as Error).message);
     }
     c.json({ settings: masked(s), exportDefault: EXPORT_DIR });
+  });
+
+  // "Test" next to a key in Settings: tries the service and says what to do next. A masked
+  // value means "the saved key": that one is read from the Keychain.
+  r.post('/api/settings/test', async (c) => {
+    const body = await c.body<{ service?: string; key?: string; extra?: string }>();
+    const service = String(body.service ?? '') as Service;
+    if (!['tenor', 'freesound', 'pexels', 'pixabay', 'google'].includes(service)) throw new HttpError(400, 'unknown service');
+    const saved = getSettings();
+    const savedKey = { tenor: saved.tenorKey, freesound: saved.freesoundKey, pexels: saved.pexelsKey, pixabay: saved.pixabayKey, google: saved.googleKey }[service] ?? '';
+    const key = typeof body.key === 'string' && !/^•+$/.test(body.key) ? body.key : savedKey;
+    const extra = typeof body.extra === 'string' && !/^•+$/.test(body.extra) ? body.extra : service === 'google' ? saved.googleCx ?? '' : '';
+    c.json(await checkKey(service, key, extra));
   });
 
   r.patch('/api/studio/profile', async (c) => {
