@@ -4,7 +4,7 @@
 // tested comes from the field, not the Keychain, so a key can be checked
 // before it is saved.
 
-export type Service = 'tenor' | 'freesound' | 'pexels' | 'pixabay' | 'google';
+export type Service = 'tenor' | 'freesound' | 'pexels' | 'pixabay' | 'serpapi' | 'google';
 
 export interface KeyCheck {
   ok: boolean;
@@ -57,6 +57,13 @@ export async function checkKey(service: Service, key: string, extra = ''): Promi
         if (/invalid argument|cx/i.test(why) || r.status === 400) return { ok: false, message: 'Google does not know that search engine id. Copy the "Search engine ID" from the engine\'s Overview page (not its name).' };
         if (r.status === 429) return { ok: false, message: 'The free 100 searches for today are used up; it resets at midnight Pacific time.' };
         return { ok: false, message: `Google answered ${r.status}${why ? `: ${why}` : ''}.` };
+      }
+      case 'serpapi': {
+        const r = await probe(`https://serpapi.com/search.json?engine=google_images&q=sunset&num=10&api_key=${encodeURIComponent(key)}`);
+        if (r.status === 200) return { ok: true, message: 'SerpApi works: Google image results are on (250 searches a month on the free plan).' };
+        if (r.status === 401) return { ok: false, message: 'SerpApi does not accept that key. Copy "Your Private API Key" from serpapi.com/manage-api-key.' };
+        if (r.status === 429) return { ok: false, message: 'The SerpApi free searches for this month are used up; they come back next month.' };
+        return { ok: false, message: `SerpApi answered ${r.status}.` };
       }
       case 'pexels': {
         const r = await probe('https://api.pexels.com/v1/search?query=sunset&per_page=1', { authorization: key });

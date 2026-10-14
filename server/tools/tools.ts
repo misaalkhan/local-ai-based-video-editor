@@ -31,7 +31,7 @@ import { fetchGif, found as foundGifs, searchGifs } from '../gifs.ts';
 import { STOCK_SOURCES, addStock, availableSources, searchStock, stockItem } from '../stock.ts';
 import type { StockKind, StockSource } from '../stock.ts';
 import { describeThreads, searchReddit } from '../reddit.ts';
-import { addLinkMedia, describeLink, readLink, searchImages } from '../links.ts';
+import { addLinkMedia, describeLink, imageSearchSources, readLink, searchImages } from '../links.ts';
 import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
 import type { FoundSound } from '../sounds.ts';
 import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
@@ -1827,15 +1827,17 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
   },
   {
     name: 'search_images',
-    description: `Pictures from across the web for a prompt (a person, a cast, a scene, a poster), through Google image search with the user's own key from Settings (when it is not set, the tool says so: then use WebSearch to find pages and read_link to take their pictures, or find_footage kind=image for licensed stock). Returns candidates with ids, sizes and the page each sits on; add_link_media downloads the ones that fit. Be specific ("Harry Jowsey red carpet 2025", "Amber Mozo Let's Marry Harry wedding dress"). Pictures come with whatever rights their site has; the source is kept with each file and the user decides what goes on screen, as with anything they attach. For stock b-roll, find_footage is the better tool.`,
-    schema: obj({ query: S('What the picture should show.'), limit: N('How many to list, default 8, max 10.') }, ['query']),
+    description: `Pictures for a prompt (a person, a cast, a scene, a poster, a screenshot people posted). Reddit image posts and galleries are searched without any key (fans post the cast photos and screenshots there); Google image results come in when the user has a SerpApi key or a Google engine in Settings (the tool says which were used). Returns candidates with ids, sizes and the page each sits on; add_link_media downloads the ones that fit. Be specific ("Harry Jowsey red carpet", "Amber Mozo wedding dress Let's Marry Harry"); for Reddit-only results, words from thread titles work best. Pictures come with whatever rights their site has; the source is kept with each file and the user decides what goes on screen, as with anything they attach. For stock b-roll, find_footage is the better tool.`,
+    schema: obj({ query: S('What the picture should show.'), limit: N('How many to list, default 10, max 30.') }, ['query']),
     label: (a) => `Searching images for "${str(a.query)}"`,
     readOnly: true,
     run: async (_ctx, a) => {
       const q = str(a.query).trim();
-      const hits = await searchImages(q, optNum(a.limit, 'limit') ?? 8).catch((err: Error) => bad(err.message));
-      if (!hits.length) return { text: `No pictures found for "${q}". Try other words, a name spelt differently, or WebSearch for an article and read_link.` };
-      return { text: `Pictures for "${q}" (add_link_media with the ids you want; the source stays with each file):\n${hits.map((h) => `  ${h.id}  ${h.width && h.height ? `${h.width}x${h.height}` : '?'}  "${(h.alt ?? '').slice(0, 80)}"  on ${h.host}  ${h.page.length > 80 ? `${h.page.slice(0, 77)}…` : h.page}`).join('\n')}` };
+      const { hits, errors } = await searchImages(q, optNum(a.limit, 'limit') ?? 10).catch((err: Error) => bad(err.message));
+      const used = imageSearchSources().map((x) => ({ serpapi: 'Google results (SerpApi)', google: 'a Google engine', reddit: 'Reddit posts' })[x]).join(' and ');
+      const head = `Pictures for "${q}" from ${used}${hits.length ? '' : ': none found'}${errors.length ? `\nProblems: ${errors.join('; ')}` : ''}`;
+      if (!hits.length) return { text: `${head}\nTry other words (a thread title's words for Reddit), the name spelt differently, or WebSearch for an article and read_link. Google results need a SerpApi key in Settings (free).` };
+      return { text: `${head} (add_link_media with the ids you want; the source stays with each file):\n${hits.map((h) => `  ${h.id}  ${h.width && h.height ? `${h.width}x${h.height}` : '?'}  "${(h.alt ?? '').slice(0, 80)}"  ${h.where}  ${h.page.length > 80 ? `${h.page.slice(0, 77)}…` : h.page}`).join('\n')}` };
     },
   },
   {

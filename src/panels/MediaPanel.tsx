@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import type { MediaAsset } from '../../shared/types.ts';
 import { api, mediaUrl } from '../api.ts';
-import { fail, useStore } from '../store.ts';
+import { fail, toast, useStore } from '../store.ts';
 import { addToTimeline, draggable, formatBytes, formatDuration, importFiles, importFromDisk, looksLikeMusic } from '../actions.ts';
 import { Icon, Spinner } from '../icons.tsx';
 import { Button, Empty, Menu, MenuItem } from '../ui.tsx';
@@ -104,22 +104,35 @@ export function MediaPanel({ library = false }: { library?: boolean } = {}) {
   const [stock, setStock] = useState(false);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  // Uploads, chosen files, found footage and pictures taken from links; the app's own files (sounds, voice, stills) stay out.
   const list = Object.values(media)
-    .filter((m) => !m.origin)
+    .filter((m) => !m.origin || m.origin === 'stock' || m.origin === 'link')
     .sort((a, b) => a.addedAt - b.addedAt);
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setOver(false);
-    if (e.dataTransfer.files.length) void importFiles([...e.dataTransfer.files]);
+    if (e.dataTransfer.files.length) {
+      void importFiles([...e.dataTransfer.files]);
+      return;
+    }
+    // A picture dragged from another site: the browser hands over its address (or the picture itself) and the page it came from.
+    const dropped = pictureFromDrop(e.dataTransfer);
+    if (!dropped) return;
+    toast('Fetching the picture…', 'info');
+    api
+      .addLinkMedia(projectId, dropped.url, dropped.page, dropped.title)
+      .then((r) => toast(`Added "${r.media.name}"${dropped.page ? `, source kept` : ''}.`, 'success'))
+      .catch(fail);
   };
 
   return (
     <div
       className={`panel media-panel ${over ? 'over' : ''}`}
       onDragOver={(e) => {
-        // Only files from outside the app are imported; a card being dragged to the timeline is not.
-        if (!e.dataTransfer.types.includes('Files')) return;
+        // Files and pictures from outside the app are imported; a card being dragged to the timeline is not.
+        const t = e.dataTransfer.types;
+        if (!t.includes('Files') && !t.includes('text/uri-list') && !t.includes('text/html')) return;
         e.preventDefault();
         setOver(true);
       }}
@@ -175,4 +188,28 @@ export function MediaPanel({ library = false }: { library?: boolean } = {}) {
       {over && <div className="drop-veil">Drop to add</div>}
     </div>
   );
+}
+
+/** The picture in a drag from another site: its address, the page it sits on and its alt text, or null when the drag carries no picture. */
+export function pictureFromDrop(dt: DataTransfer): { url: string; page?: string; title?: string } | null {
+  const html = dt.getData('text/html');
+  const uri = dt.getData('text/uri-list').split('\n').find((l) => l && !l.startsWith('#'))?.trim() ?? '';
+  let url = '';
+  let title: string | undefined;
+  if (html) {
+    const img = /<img\b[^>]*>/i.exec(html)?.[0];
+    if (img) {
+      const srcset = /\bsrcset\s*=\s*"([^"]*)"/i.exec(img)?.[1];
+      const best = srcset?.split(',').map((p) => p.trim().split(/\s+/)).sort((a, b) => (parseFloat(b[1] ?? '0') || 0) - (parseFloat(a[1] ?? '0') || 0))[0]?.[0];
+      url = best || /\bsrc\s*=\s*"([^"]*)"/i.exec(img)?.[1] || '';
+      title = /\balt\s*=\s*"([^"]*)"/i.exec(img)?.[1]?.trim() || undefined;
+    }
+  }
+  if (!url) url = uri;
+  if (!url) return null;
+  url = url.replace(/&amp;/g, '&');
+  if (!/^(https?:|data:image\/)/i.test(url)) return null;
+  // The page the picture came from: the browser names it in the drag when it can.
+  const page = uri && /^https?:/i.test(uri) && uri !== url && !/\.(jpe?g|png|webp|gif|avif)(\?|$)/i.test(uri) ? uri : undefined;
+  return { url, page, title };
 }

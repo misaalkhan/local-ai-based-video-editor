@@ -30,6 +30,7 @@ import { removeObjectTrack, trackObject } from './objects.ts';
 import { importMedia, proxyFile, removeMedia, resumePending, retranscribe } from './media.ts';
 import { MEDIA_EXT, extOf } from './probe.ts';
 import { checkKey } from './keycheck.ts';
+import { addUrlMedia } from './links.ts';
 import type { Service } from './keycheck.ts';
 import { addPlanItem, copyMedia, getRecipes, getSettings, getStudio, layOut, removePlanItem, removeRecipe, removeReference, saveProfile, saveSettings, updatePlanItem } from './studio.ts';
 import type { PlanItem, Profile, Settings } from '../shared/types.ts';
@@ -69,7 +70,7 @@ function expandPath(p: string): string[] {
 
 /** Settings as shown to the browser: keys are never sent back, only whether one is set. */
 const mask = (v: string | undefined) => (v ? '•'.repeat(8) : '');
-const masked = (s: Settings): Settings => ({ ...s, tenorKey: mask(s.tenorKey), freesoundKey: mask(s.freesoundKey), pexelsKey: mask(s.pexelsKey), pixabayKey: mask(s.pixabayKey), googleKey: mask(s.googleKey), googleCx: mask(s.googleCx) });
+const masked = (s: Settings): Settings => ({ ...s, tenorKey: mask(s.tenorKey), freesoundKey: mask(s.freesoundKey), pexelsKey: mask(s.pexelsKey), pixabayKey: mask(s.pixabayKey), serpapiKey: mask(s.serpapiKey), googleKey: mask(s.googleKey), googleCx: mask(s.googleCx) });
 
 export function registerRoutes(r: Router): void {
   r.get('/api/status', (c) => c.json(toolStatus()));
@@ -122,6 +123,7 @@ export function registerRoutes(r: Router): void {
     if (typeof body.freesoundKey === 'string' && !/^•+$/.test(body.freesoundKey)) patch.freesoundKey = body.freesoundKey.trim();
     if (typeof body.pexelsKey === 'string' && !/^•+$/.test(body.pexelsKey)) patch.pexelsKey = body.pexelsKey.trim();
     if (typeof body.pixabayKey === 'string' && !/^•+$/.test(body.pixabayKey)) patch.pixabayKey = body.pixabayKey.trim();
+    if (typeof body.serpapiKey === 'string' && !/^•+$/.test(body.serpapiKey)) patch.serpapiKey = body.serpapiKey.trim();
     if (typeof body.googleKey === 'string' && !/^•+$/.test(body.googleKey)) patch.googleKey = body.googleKey.trim();
     if (typeof body.googleCx === 'string' && !/^•+$/.test(body.googleCx)) patch.googleCx = body.googleCx.trim();
     let s: Settings;
@@ -138,12 +140,24 @@ export function registerRoutes(r: Router): void {
   r.post('/api/settings/test', async (c) => {
     const body = await c.body<{ service?: string; key?: string; extra?: string }>();
     const service = String(body.service ?? '') as Service;
-    if (!['tenor', 'freesound', 'pexels', 'pixabay', 'google'].includes(service)) throw new HttpError(400, 'unknown service');
+    if (!['tenor', 'freesound', 'pexels', 'pixabay', 'serpapi', 'google'].includes(service)) throw new HttpError(400, 'unknown service');
     const saved = getSettings();
-    const savedKey = { tenor: saved.tenorKey, freesound: saved.freesoundKey, pexels: saved.pexelsKey, pixabay: saved.pixabayKey, google: saved.googleKey }[service] ?? '';
+    const savedKey = { tenor: saved.tenorKey, freesound: saved.freesoundKey, pexels: saved.pexelsKey, pixabay: saved.pixabayKey, serpapi: saved.serpapiKey, google: saved.googleKey }[service] ?? '';
     const key = typeof body.key === 'string' && !/^•+$/.test(body.key) ? body.key : savedKey;
     const extra = typeof body.extra === 'string' && !/^•+$/.test(body.extra) ? body.extra : service === 'google' ? saved.googleCx ?? '' : '';
     c.json(await checkKey(service, key, extra));
+  });
+
+  // A picture dragged from another site onto the Media panel (an address, or a data: picture), kept with its source.
+  r.post('/api/projects/:pid/media/link', async (c) => {
+    const p = getProject(c.params.pid);
+    const body = await c.body<{ url?: string; page?: string; title?: string }>();
+    if (typeof body.url !== 'string' || !body.url.trim()) throw new HttpError(400, 'url is required');
+    try {
+      c.json({ media: await addUrlMedia(p, body.url, typeof body.page === 'string' ? body.page : undefined, typeof body.title === 'string' ? body.title : undefined) }, 201);
+    } catch (err) {
+      throw new HttpError(400, (err as Error).message);
+    }
   });
 
   r.patch('/api/studio/profile', async (c) => {

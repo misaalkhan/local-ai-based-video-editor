@@ -176,6 +176,7 @@ export const api = {
   recipes: () => request<{ recipes: Recipe[] }>('GET', '/api/recipes').then((r) => r.recipes),
   removeRecipe: (id: ID) => request('DELETE', `/api/recipes/${id}`),
   settings: () => request<{ settings: Settings; exportDefault: string }>('GET', '/api/settings'),
+  addLinkMedia: (projectId: string, url: string, page?: string, title?: string) => request<{ media: MediaAsset }>('POST', `/api/projects/${projectId}/media/link`, { url, page, title }),
   testKey: (service: string, key: string, extra?: string) => request<{ ok: boolean; message: string }>('POST', '/api/settings/test', { service, key, extra }),
   saveSettings: (patch: Partial<Settings>) => request<{ settings: Settings; exportDefault: string }>('PATCH', '/api/settings', patch),
   saveProfile: (patch: Partial<Profile>) => request<{ profile: Profile }>('PATCH', '/api/studio/profile', patch).then((r) => r.profile),

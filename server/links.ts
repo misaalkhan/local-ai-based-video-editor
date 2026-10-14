@@ -295,6 +295,12 @@ function absolute(src: string, base: string): string | null {
 
 const SKIP_IMAGE = /logo|icon|sprite|avatar|badge|button|pixel|tracker|spacer|blank|placeholder|loading|emoji|flag|arrow|\.svg(?:$|\?)|1x1|data:image/i;
 
+/** Wikipedia and Commons thumbnails point at the full picture. */
+export function fullWikimedia(url: string): string {
+  const wm = /^https?:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/([a-z]+)\/thumb\/([^/]+\/[^/]+\/[^/]+)\/\d+px-[^/?]+(?:\?.*)?$/.exec(url);
+  return wm ? `https://upload.wikimedia.org/wikipedia/${wm[1]}/${wm[2]}` : url;
+}
+
 /** The pictures on a page: lead image first, then the ones in the content, biggest first where sizes are known. */
 export function pagePictures(html: string, base: string): Omit<LinkPicture, 'id'>[] {
   const out: Omit<LinkPicture, 'id'>[] = [];
@@ -305,10 +311,9 @@ export function pagePictures(html: string, base: string): Omit<LinkPicture, 'id'
     if (!url || seen.has(url) || SKIP_IMAGE.test(url)) return;
     if ((width && width < 120) || (height && height < 100)) return;
     if (alt && /^(icon|logo|avatar|thumbnail)$/i.test(alt.trim())) return;
-    // Wikipedia and Commons thumbnails point at the full picture.
-    const wm = /^https?:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/([a-z]+)\/thumb\/([^/]+\/[^/]+\/[^/]+)\/\d+px-[^/?]+(?:\?.*)?$/.exec(url);
-    if (wm) {
-      url = `https://upload.wikimedia.org/wikipedia/${wm[1]}/${wm[2]}`;
+    const full = fullWikimedia(url);
+    if (full !== url) {
+      url = full;
       width = undefined;
       height = undefined;
       if (SKIP_IMAGE.test(url) || seen.has(url)) return;
@@ -400,39 +405,181 @@ export interface ImageHit extends LinkPicture {
   page: string;
   pageTitle: string;
   host: string;
+  /** Where the hit came from: Google results through SerpApi, a Google engine, or a Reddit post. */
+  via: 'serpapi' | 'google' | 'reddit';
 }
 
-/** Whether image search by prompt is on (a Google Custom Search key and engine id in Settings). */
-export const imageSearchOn = () => Boolean(getSecret('google') && getSecret('googlecx'));
+/** Which image searches are on: Reddit always; Google results need a SerpApi key or a Google engine. */
+export function imageSearchSources(): string[] {
+  const out = ['reddit'];
+  if (getSecret('serpapi')) out.unshift('serpapi');
+  else if (getSecret('google') && getSecret('googlecx')) out.unshift('google');
+  return out;
+}
 
-/**
- * Pictures from across the web for a prompt, through Google's Custom Search
- * API with the user's own key (100 searches a day are free). Google's result
- * pages themselves refuse scripts, so there is no keyless way. Each hit is
- * remembered so add_link_media can download it with its source kept.
- */
-export async function searchImages(q: string, limit = 10): Promise<ImageHit[]> {
-  const key = getSecret('google');
-  const cx = getSecret('googlecx');
-  if (!key || !cx) throw new Error('Image search needs a Google Custom Search key and a search engine id in Settings (free, 100 searches a day; the README has the steps). Without it, use WebSearch to find pages and read_link to take pictures from them, or find_footage for licensed stock.');
-  const params = new URLSearchParams({ key, cx, q, searchType: 'image', num: String(Math.max(1, Math.min(10, limit))), safe: 'active', imgSize: 'large' });
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
+/** Google image results through SerpApi (the user's key; 250 searches a month are free). */
+async function serpapiImages(q: string, limit: number): Promise<ImageHit[]> {
+  const key = getSecret('serpapi');
+  const params = new URLSearchParams({ engine: 'google_images', q, api_key: key, safe: 'active', num: String(Math.min(50, Math.max(10, limit))) });
+  const r = await fetch(`https://serpapi.com/search.json?${params}`, { signal: AbortSignal.timeout(25000) });
+  const body = (await r.json().catch(() => ({}))) as { images_results?: { original?: string; original_width?: number; original_height?: number; title?: string; link?: string; source?: string }[]; error?: string };
+  if (!r.ok) throw new Error(r.status === 401 ? 'SerpApi does not accept the key in Settings.' : r.status === 429 ? 'The SerpApi free searches for this month are used up.' : `SerpApi answered ${r.status}${body.error ? `: ${body.error}` : ''}.`);
+  const hits: ImageHit[] = [];
+  for (const it of (body.images_results ?? []).slice(0, limit)) {
+    if (!it.original || !/^https?:\/\//.test(it.original)) continue;
+    const page = it.link && /^https?:\/\//.test(it.link) ? it.link : it.original;
+    const host = it.source || hostOf(page);
+    const [pic] = remember(page, it.title ?? host, [{ url: it.original, kind: 'image', where: `found on ${host}`, alt: it.title, width: it.original_width, height: it.original_height }]);
+    if (pic) hits.push({ ...pic, page, pageTitle: it.title ?? host, host, via: 'serpapi' });
+  }
+  return hits;
+}
+
+/** Image results from a Google Programmable Search Engine (the user's key and engine; new engines search up to 50 sites of the user's choice). */
+async function googleImages(q: string, limit: number): Promise<ImageHit[]> {
+  const params = new URLSearchParams({ key: getSecret('google'), cx: getSecret('googlecx'), q, searchType: 'image', num: String(Math.max(1, Math.min(10, limit))), safe: 'active', imgSize: 'large' });
   const r = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`, { signal: AbortSignal.timeout(20000) });
-  const body = (await r.json().catch(() => ({}))) as { items?: { title?: string; link: string; displayLink?: string; mime?: string; image?: { contextLink?: string; width?: number; height?: number; byteSize?: number } }[]; error?: { message?: string } };
-  if (!r.ok) throw new Error(`Google image search answered ${r.status}${body.error?.message ? `: ${body.error.message}` : ''}. Check the key and the engine id in Settings (the engine must have "Image search" and "Search the entire web" turned on).`);
+  const body = (await r.json().catch(() => ({}))) as { items?: { title?: string; link: string; displayLink?: string; image?: { contextLink?: string; width?: number; height?: number } }[]; error?: { message?: string } };
+  if (!r.ok) throw new Error(`Google image search answered ${r.status}${body.error?.message ? `: ${body.error.message}` : ''}. Check the key and the engine id in Settings.`);
   const hits: ImageHit[] = [];
   for (const it of body.items ?? []) {
     if (!it.link || !/^https?:\/\//.test(it.link)) continue;
     const page = it.image?.contextLink ?? it.link;
-    let host = it.displayLink ?? '';
-    try {
-      host = host || new URL(page).hostname.replace(/^www\./, '');
-    } catch {
-      // Keep the display host.
-    }
+    const host = it.displayLink || hostOf(page);
     const [pic] = remember(page, it.title ?? host, [{ url: it.link, kind: 'image', where: `found on ${host}`, alt: it.title, width: it.image?.width, height: it.image?.height }]);
-    if (pic) hits.push({ ...pic, page, pageTitle: it.title ?? host, host });
+    if (pic) hits.push({ ...pic, page, pageTitle: it.title ?? host, host, via: 'google' });
   }
   return hits;
+}
+
+interface ArchivePost {
+  id: string;
+  title?: string;
+  subreddit?: string;
+  score?: number;
+  num_comments?: number;
+  permalink?: string;
+  url?: string;
+  over_18?: boolean;
+  media_metadata?: Record<string, { e?: string; m?: string; s?: { x?: number; y?: number } }>;
+  gallery_data?: { items?: { media_id: string }[] };
+}
+
+/**
+ * Pictures people posted on Reddit about the subject, through the archive:
+ * image posts and galleries (i.redd.it serves them to anyone), biggest
+ * threads first. For a show or a public figure this is where fans put the
+ * screenshots and photos.
+ */
+async function redditImages(q: string, limit: number): Promise<ImageHit[]> {
+  const archive = async (field: 'title' | 'q') => {
+    const params = new URLSearchParams({ [field]: q, size: '60', sort_type: 'score', sort: 'desc', score: '>4' });
+    const r = await fetch(`https://api.pullpush.io/reddit/search/submission/?${params}`, { headers: { 'user-agent': 'LocalStudio/1.0 (local video editor)', accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error(`The Reddit archive answered ${r.status}.`);
+    return ((await r.json()) as { data?: ArchivePost[] }).data ?? [];
+  };
+  // Titles that carry the words are the real matches; the body search only fills in when they run short.
+  let posts = await archive('title');
+  if (posts.length < limit * 2) {
+    const have = new Set(posts.map((p) => p.id));
+    posts = [...posts, ...(await archive('q')).filter((p) => !have.has(p.id))];
+  }
+  const words = q.toLowerCase().split(/\s+/).filter((w) => w.length > 1);
+  const hits: ImageHit[] = [];
+  for (const s of posts.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))) {
+    if (s.over_18 || !s.title || (s.score ?? 0) < 5) continue;
+    // Spam lands in throwaway subreddits with random names; skip those and anything adult by name.
+    if (!s.subreddit || /^[a-z0-9]{9,}$/.test(s.subreddit) || /nsfw|porn|gonewild|xxx/i.test(s.subreddit)) continue;
+    const t = s.title.toLowerCase();
+    if (words.length > 1 && words.filter((w) => t.includes(w)).length < Math.ceil(words.length / 2)) continue;
+    const page = s.permalink ? `https://www.reddit.com${s.permalink}` : `https://www.reddit.com/comments/${s.id}`;
+    const title = s.title.replace(/\s+/g, ' ').trim();
+    const pics: Omit<LinkPicture, 'id'>[] = [];
+    const url = s.url ?? '';
+    if (/^https?:\/\/(?:i\.redd\.it|i\.imgur\.com)\/[A-Za-z0-9_-]+\.(?:jpe?g|png|webp)$/i.test(url)) pics.push({ url, kind: 'image', where: `Reddit post in r/${s.subreddit} (${s.score ?? 0} points)`, alt: title });
+    if (s.media_metadata) {
+      const order = s.gallery_data?.items?.map((i) => i.media_id) ?? Object.keys(s.media_metadata);
+      let n = 0;
+      for (const key of order) {
+        const m = s.media_metadata[key];
+        if (!m || m.e !== 'Image') continue;
+        n++;
+        const ext = (m.m ?? 'image/jpeg').split('/')[1].replace('jpeg', 'jpg');
+        pics.push({ url: `https://i.redd.it/${key}.${ext}`, kind: 'image', where: `Reddit gallery ${n} of ${order.length} in r/${s.subreddit} (${s.score ?? 0} points)`, alt: title, width: m.s?.x, height: m.s?.y });
+        if (n >= 3) break;
+      }
+    }
+    if (!pics.length) continue;
+    for (const pic of remember(page, title, pics)) hits.push({ ...pic, page, pageTitle: title, host: 'reddit.com', via: 'reddit' });
+    if (hits.length >= limit) break;
+  }
+  return hits.slice(0, limit);
+}
+
+/**
+ * Pictures for a prompt. Google results come through SerpApi with the user's
+ * key, or a Google engine of their own (Google's whole-web engines ended in
+ * January 2026); Reddit image posts come without any key. Each hit is
+ * remembered so add_link_media can download it with its source kept.
+ */
+export async function searchImages(q: string, limit = 10): Promise<{ hits: ImageHit[]; errors: string[] }> {
+  const n = Math.max(1, Math.min(30, limit));
+  const sources = imageSearchSources();
+  const errors: string[] = [];
+  const runs: Promise<ImageHit[]>[] = [];
+  if (sources.includes('serpapi')) runs.push(serpapiImages(q, n));
+  else if (sources.includes('google')) runs.push(googleImages(q, n));
+  runs.push(redditImages(q, n));
+  const settled = await Promise.allSettled(runs);
+  const lists: ImageHit[][] = [];
+  for (const s of settled) {
+    if (s.status === 'fulfilled') lists.push(s.value);
+    else errors.push((s.reason as Error).message);
+  }
+  // Web results first, Reddit after, up to the limit; the web list is the richer one when it exists.
+  const hits: ImageHit[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const h of list) {
+      if (seen.has(h.url) || hits.length >= n) continue;
+      seen.add(h.url);
+      hits.push(h);
+    }
+  }
+  return { hits, errors };
+}
+
+/** A picture or video at an address the user dropped or pasted, straight into the project. */
+export async function addUrlMedia(p: Project, url: string, page?: string, title?: string): Promise<MediaAsset> {
+  const src = url.trim();
+  if (src.startsWith('data:')) {
+    const m = /^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i.exec(src);
+    if (!m) throw new Error('That is not a picture the editor can read.');
+    const ext = extFromType(m[1], 'https://x/y');
+    if (!ext) throw new Error(`That picture is ${m[1]}, which the editor cannot import.`);
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length < MIN_IMAGE_BYTES) throw new Error('That is a small thumbnail. Open the full-size picture (click the result first) and drag that one.');
+    const dir = path.join(p.dir, 'links');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `dropped-${Date.now().toString(36)}.${ext}`);
+    fs.writeFileSync(file, buf);
+    const asset = await importMedia(p, file, { name: (title || 'Dropped picture').slice(0, 70), managed: true, origin: 'link' });
+    if (page) patchMedia(p, asset.id, { sourceUrl: page, credit: `Source: ${hostOf(page) || page}` });
+    return asset;
+  }
+  const info = classifyLink(fullWikimedia(src));
+  const from = page && /^https?:\/\//.test(page) ? page : info.url;
+  const [pic] = remember(from, title || hostOf(from) || from, [{ url: info.url, kind: /\.(mp4|webm|mov)(\?|$)/i.test(info.url) ? 'video' : 'image', where: page ? 'dropped from a page' : 'the link itself', alt: title }]);
+  if (!pic) throw new Error('Nothing to add.');
+  return addLinkMedia(p, pic.id);
 }
 
 /** The digest as text for the assistant. */

@@ -727,7 +727,9 @@ export interface Settings {
   /** Pexels and Pixabay keys for stock footage search; the keyless sources work without them. */
   pexelsKey?: string;
   pixabayKey?: string;
-  /** Google Custom Search key and engine id for image search by prompt; empty means the search is off. */
+  /** SerpApi key: Google image results by prompt (free tier). */
+  serpapiKey?: string;
+  /** Google Custom Search key and engine id: image search over up to 50 sites of the user's choice. */
   googleKey?: string;
   googleCx?: string;
   updatedAt: number;

@@ -10,7 +10,7 @@ import { api } from '../api.ts';
 import { fail, toast } from '../store.ts';
 import { Button, Field, Modal, Select, TextInput } from '../ui.tsx';
 
-type Service = 'tenor' | 'freesound' | 'pexels' | 'pixabay' | 'google';
+type Service = 'tenor' | 'freesound' | 'pexels' | 'pixabay' | 'serpapi' | 'google';
 
 interface KeyDef {
   service: Service;
@@ -35,15 +35,14 @@ const KEYS: KeyDef[] = [
     ],
   },
   {
-    service: 'google',
-    label: 'Google image search',
-    what: 'pictures by prompt from the whole web (the assistant\'s search_images); 100 searches a day are free',
-    placeholder: 'paste the API key (the Tenor key works too)',
+    service: 'serpapi',
+    label: 'Google image results (SerpApi)',
+    what: 'pictures by prompt from the whole web for the assistant\'s search_images; without it, Reddit posts are searched',
+    placeholder: 'paste your SerpApi private key',
     steps: [
-      { text: 'Enable the Custom Search API', href: 'https://console.cloud.google.com/apis/library/customsearch.googleapis.com' },
-      { text: 'on the same project (the key from Tenor then works here; otherwise make one under Credentials)' },
-      { text: 'then create a search engine', href: 'https://programmablesearchengine.google.com/controlpanel/create' },
-      { text: 'name it anything, choose "Search the entire web", Create; on its Overview page turn Image search on and copy the Search engine ID into the second box.' },
+      { text: 'Sign up at serpapi.com with an email', href: 'https://serpapi.com/users/sign_up' },
+      { text: '(no card; 250 searches a month are free), then copy "Your Private API Key" from', href: 'https://serpapi.com/manage-api-key' },
+      { text: 'and paste it here. Google itself no longer offers whole-web search to new engines, so this is the way to Google\'s image results.' },
     ],
   },
   {
@@ -74,6 +73,17 @@ const KEYS: KeyDef[] = [
     steps: [
       { text: 'Make an account at freesound.org, then apply for a key', href: 'https://freesound.org/apiv2/apply' },
       { text: '(any name and description) and paste the Client secret / API key.' },
+    ],
+  },
+  {
+    service: 'google',
+    label: 'Google engine (advanced)',
+    what: 'image search over up to 50 sites you list yourself (Google ended whole-web engines in January 2026); not needed if SerpApi is set',
+    placeholder: 'paste a Custom Search API key',
+    steps: [
+      { text: 'Enable the Custom Search API', href: 'https://console.cloud.google.com/apis/library/customsearch.googleapis.com' },
+      { text: 'on the Tenor project (the same key works), then', href: 'https://programmablesearchengine.google.com/controlpanel/create' },
+      { text: 'create an engine, add the sites it may search (reddit.com, en.wikipedia.org, people.com, eonline.com, tudum.com…), turn Image search on, and copy its Search engine ID into the second box.' },
     ],
   },
 ];
@@ -130,7 +140,7 @@ function KeyRow({ def, value, onChange, extra, onExtra }: { def: KeyDef; value: 
 export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [s, setS] = useState<Settings | null>(null);
   const [exportDefault, setExportDefault] = useState('');
-  const [keys, setKeys] = useState<Record<Service, string>>({ tenor: '', freesound: '', pexels: '', pixabay: '', google: '' });
+  const [keys, setKeys] = useState<Record<Service, string>>({ tenor: '', freesound: '', pexels: '', pixabay: '', serpapi: '', google: '' });
   const [googleCx, setGoogleCx] = useState('');
   useEffect(() => {
     api
@@ -138,7 +148,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       .then((r) => {
         setS(r.settings);
         setExportDefault(r.exportDefault);
-        setKeys({ tenor: r.settings.tenorKey, freesound: r.settings.freesoundKey ?? '', pexels: r.settings.pexelsKey ?? '', pixabay: r.settings.pixabayKey ?? '', google: r.settings.googleKey ?? '' });
+        setKeys({ tenor: r.settings.tenorKey, freesound: r.settings.freesoundKey ?? '', pexels: r.settings.pexelsKey ?? '', pixabay: r.settings.pixabayKey ?? '', serpapi: r.settings.serpapiKey ?? '', google: r.settings.googleKey ?? '' });
         setGoogleCx(r.settings.googleCx ?? '');
       })
       .catch(fail);
@@ -146,7 +156,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const save = () => {
     if (!s) return;
     api
-      .saveSettings({ assistantModel: s.assistantModel, exportDir: s.exportDir, tenorKey: keys.tenor, freesoundKey: keys.freesound, pexelsKey: keys.pexels, pixabayKey: keys.pixabay, googleKey: keys.google, googleCx })
+      .saveSettings({ assistantModel: s.assistantModel, exportDir: s.exportDir, tenorKey: keys.tenor, freesoundKey: keys.freesound, pexelsKey: keys.pexels, pixabayKey: keys.pixabay, serpapiKey: keys.serpapi, googleKey: keys.google, googleCx })
       .then(() => {
         toast('Settings saved.', 'success');
         onClose();
