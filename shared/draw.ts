@@ -402,6 +402,15 @@ export const LOOKS: Record<string, { label: string; fx: ClipFx }> = {
   dreamy: { label: 'Dreamy', fx: { brightness: 1.07, contrast: 0.9, saturation: 0.95, warmth: 0.25, blur: 0.0015 } },
   bleach: { label: 'Bleach', fx: { brightness: 1.1, contrast: 1.22, saturation: 0.55 } },
   cinema: { label: 'Widescreen', fx: { contrast: 1.1, saturation: 0.92, warmth: 0.1, letterbox: 0.12, vignette: 0.3 } },
+  // The girlypop looks: pink, soft and glowing.
+  blush: { label: 'Blush', fx: { brightness: 1.05, contrast: 0.94, saturation: 1.05, warmth: 0.2, tint: 0.22, bloom: 0.12 } },
+  peach: { label: 'Peach', fx: { brightness: 1.05, contrast: 0.96, saturation: 1.08, warmth: 0.45, tint: 0.1, highlights: -0.1 } },
+  cottoncandy: { label: 'Cotton candy', fx: { brightness: 1.08, contrast: 0.86, saturation: 0.95, temperature: -0.15, tint: 0.35, bloom: 0.2, blacks: 0.25 } },
+  barbie: { label: 'Barbie', fx: { contrast: 1.1, saturation: 1.3, vibrance: 0.25, tint: 0.3, warmth: 0.1, hsl: { magenta: { sat: 0.35 }, red: { hue: 0.08, sat: 0.2 } } } },
+  vanilla: { label: 'Vanilla', fx: { brightness: 1.06, contrast: 0.9, saturation: 0.8, warmth: 0.35, blacks: 0.2, bloom: 0.1 } },
+  rosy: { label: 'Rosy film', fx: { contrast: 1.04, saturation: 0.92, warmth: 0.3, tint: 0.2, grain: 0.3, vignette: 0.25, blacks: 0.12 } },
+  glam: { label: 'Soft glam', fx: { contrast: 1.06, saturation: 1.05, warmth: 0.15, tint: 0.1, bloom: 0.3, clarity: -0.15, vignette: 0.2 } },
+  y2k: { label: 'Y2K', fx: { contrast: 1.15, saturation: 1.35, tint: 0.2, temperature: -0.1, rgbSplit: 0.003, bloom: 0.12 } },
 };
 
 function drawMainSeg(env: Env, seg: MainSeg, ref: VisualRef | undefined, img: LayerImage | undefined, alpha: number): void {
@@ -644,6 +653,77 @@ function drawMain(env: Env, scene: Scene, layout: MainSeg[], fps: number): void 
       ctx.restore();
       break;
     }
+    case 'heart': {
+      // The new picture opens through a growing heart with a soft pink rim; the heart pulses once as it grows.
+      // The notch between the lobes is the last part to leave the frame, so the final size is set by it (0.2 of the
+      // size above the centre), and the growth starts slowly so the heart reads as a heart for most of the move.
+      drawFrom();
+      const R = Math.max(H / 2 / 0.2, W / 2 / 0.55) * 1.08;
+      const size = R * Math.pow(easeInOut(tr.p), 1.5) * (1 + 0.05 * Math.sin(tr.p * Math.PI * 2));
+      const heart = () => {
+        ctx.beginPath();
+        ctx.moveTo(W / 2, H / 2 + size * 0.35);
+        ctx.bezierCurveTo(W / 2 + size * 0.6, H / 2 - size * 0.1, W / 2 + size * 0.45, H / 2 - size * 0.55, W / 2, H / 2 - size * 0.2);
+        ctx.bezierCurveTo(W / 2 - size * 0.45, H / 2 - size * 0.55, W / 2 - size * 0.6, H / 2 - size * 0.1, W / 2, H / 2 + size * 0.35);
+        ctx.closePath();
+      };
+      if (size > 0) {
+        ctx.save();
+        heart();
+        ctx.clip();
+        drawCurrent();
+        ctx.restore();
+        ctx.save();
+        heart();
+        ctx.lineWidth = Math.max(2, W * 0.012);
+        ctx.strokeStyle = `rgba(255,105,180,${(0.9 * (1 - tr.p)).toFixed(3)})`;
+        ctx.stroke();
+        ctx.lineWidth = Math.max(1, W * 0.004);
+        ctx.strokeStyle = `rgba(255,255,255,${(0.9 * (1 - tr.p)).toFixed(3)})`;
+        ctx.stroke();
+        ctx.restore();
+      }
+      break;
+    }
+    case 'sparkle': {
+      // A cross fade under a burst of stars and a soft pink flash at the middle of the move.
+      drawCurrent();
+      drawFrom(1 - p);
+      const k = Math.sin(clamp(tr.p, 0, 1) * Math.PI);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = `rgba(255,170,210,${(0.35 * k).toFixed(3)})`;
+      ctx.fillRect(0, 0, W, H);
+      const r = rng(tr.from.clip.id.length * 131 + 7);
+      const n = 70;
+      for (let i = 0; i < n; i++) {
+        const x = r() * W;
+        const y = r() * H;
+        const phase = r() * Math.PI * 2;
+        const life = r() * 0.6 + 0.2;
+        // Each star is on for a slice of the move around its own moment.
+        const d = Math.abs(tr.p - life) / 0.25;
+        if (d >= 1) continue;
+        const tw = 1 - d;
+        const rad = Math.min(W, H) * (0.012 + 0.03 * r()) * tw;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(phase + tr.p * 2);
+        ctx.globalAlpha = tw;
+        ctx.fillStyle = i % 3 === 0 ? '#FFD1E8' : '#FFFFFF';
+        ctx.beginPath();
+        ctx.moveTo(0, -rad);
+        ctx.quadraticCurveTo(0, 0, rad * 0.24, 0);
+        ctx.quadraticCurveTo(0, 0, 0, rad);
+        ctx.quadraticCurveTo(0, 0, -rad * 0.24, 0);
+        ctx.quadraticCurveTo(0, 0, 0, -rad);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
+      break;
+    }
     default:
       drawCurrent();
       drawFrom(1 - tr.p);
@@ -656,6 +736,13 @@ function hexRgb(hex: string): [number, number, number] {
   if (!m) return [0, 255, 0];
   const n = parseInt(m[1], 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** `k` of the way from one hex colour to another, as an rgb() string. */
+function mixHex(a: string, b: string, k: number): string {
+  const x = hexRgb(a);
+  const y = hexRgb(b);
+  return `rgb(${Math.round(x[0] + (y[0] - x[0]) * k)},${Math.round(x[1] + (y[1] - x[1]) * k)},${Math.round(x[2] + (y[2] - x[2]) * k)})`;
 }
 
 /**
@@ -882,6 +969,16 @@ interface StyleSpec {
   depth?: boolean;
   /** The spoken word tilts a little as it pops. */
   wobble?: boolean;
+  /** A pill in the accent colour behind the lines (the bubble style). */
+  pill?: boolean;
+  /** The outline is in the accent colour rather than black. */
+  accentStroke?: boolean;
+  /** Little stars twinkle around the spoken word. */
+  sparkles?: boolean;
+  /** Every word is filled with a gradient from the text colour down to the accent. */
+  gradient?: boolean;
+  /** A small heart marks the spoken word. */
+  heart?: boolean;
 }
 
 export const CAPTION_STYLES: Record<CaptionStyle, StyleSpec> = {
@@ -899,7 +996,34 @@ export const CAPTION_STYLES: Record<CaptionStyle, StyleSpec> = {
   underline: { font: 'Inter', weight: 800, size: 0.056, shadow: true, mark: 'underline' },
   retro: { font: 'Bungee', weight: 400, size: 0.066, depth: true, pop: true, mark: 'none' },
   comic: { font: 'Bangers', weight: 400, size: 0.088, stroke: 0.09, pop: true, wobble: true, mark: 'none' },
+  // Girlypop.
+  bubble: { font: 'Fredoka', weight: 700, size: 0.058, pill: true, pop: true, mark: 'none' },
+  coquette: { font: 'Playfair Display', weight: 900, size: 0.058, shadow: true, mark: 'underline', heart: true },
+  sparkle: { font: 'Kaushan Script', weight: 400, size: 0.07, glow: true, sparkles: true, pop: true },
+  y2k: { font: 'Chewy', weight: 400, size: 0.074, stroke: 0.08, accentStroke: true, depth: true, gradient: true, pop: true, mark: 'none' },
+  kawaii: { font: 'Fuzzy Bubbles', weight: 700, size: 0.066, stroke: 0.1, accentStroke: true, pop: true, wobble: true, mark: 'none' },
 };
+
+/** A small heart around the origin, `s` wide. */
+function captionHeart(ctx: Ctx2D, s: number): void {
+  ctx.beginPath();
+  ctx.moveTo(0, s * 0.35);
+  ctx.bezierCurveTo(s * 0.6, -s * 0.1, s * 0.45, -s * 0.55, 0, -s * 0.2);
+  ctx.bezierCurveTo(-s * 0.45, -s * 0.55, -s * 0.6, -s * 0.1, 0, s * 0.35);
+  ctx.closePath();
+}
+
+/** A four-point star around the origin. */
+function captionStar(ctx: Ctx2D, r: number): void {
+  const w = r * 0.24;
+  ctx.beginPath();
+  ctx.moveTo(0, -r);
+  ctx.quadraticCurveTo(0, 0, w, 0);
+  ctx.quadraticCurveTo(0, 0, 0, r);
+  ctx.quadraticCurveTo(0, 0, -w, 0);
+  ctx.quadraticCurveTo(0, 0, 0, -r);
+  ctx.closePath();
+}
 
 interface PlacedWord {
   text: string;
@@ -1007,6 +1131,19 @@ export function drawCaption(
     ctx.fillStyle = s.accent;
     ctx.fillRect(-W, -blockH / 2 - padY, 2 * W, blockH + 2 * padY);
   }
+  if (spec.pill) {
+    // One rounded pill per line in the accent colour, with a soft drop shadow.
+    const padX = px * 0.55;
+    const padY = px * 0.16;
+    setShadow(ctx, 'rgba(120,20,70,0.28)', px * 0.35, px * 0.1, pixelScale);
+    ctx.fillStyle = s.accent;
+    lines.forEach((line, li) => {
+      const top = -blockH / 2 + lineH * li + px * 0.02;
+      roundRect(ctx, -line.width / 2 - padX, top - padY, line.width + 2 * padX, lineH + 2 * padY, lineH * 0.6);
+      ctx.fill();
+    });
+    clearShadow(ctx);
+  }
   if (spec.mark === 'highlight' && active >= 0) {
     const a = placed[active];
     const padX = px * 0.2;
@@ -1016,6 +1153,7 @@ export function drawCaption(
   }
 
   const colorOf = (i: number): string => {
+    if (spec.pill) return s.color;
     if (spec.mark === 'highlight') return placed[i].strong && i !== active ? s.accent : s.color;
     if (placed[i].strong) return spec.box === 'band' ? s.color : s.accent;
     if (spec.mark === 'karaoke') return i <= active ? s.accent : s.color;
@@ -1059,7 +1197,7 @@ export function drawCaption(
   if (spec.stroke) {
     ctx.lineJoin = 'round';
     ctx.lineWidth = spec.stroke * px * 2;
-    ctx.strokeStyle = s.style === 'clean' ? 'rgba(0,0,0,0.55)' : '#000000';
+    ctx.strokeStyle = spec.accentStroke ? s.accent : s.style === 'clean' ? 'rgba(0,0,0,0.55)' : '#000000';
     each((p) => ctx.strokeText(p.text, p.x, p.y));
   }
   if (spec.glow) {
@@ -1074,7 +1212,14 @@ export function drawCaption(
     const onBox = spec.shadow && spec.mark === 'highlight' && i === active;
     if (onBox) clearShadow(ctx);
     if (spec.glow) setShadow(ctx, s.accent, i === active ? px * 0.3 : px * 0.12, 0, pixelScale);
-    ctx.fillStyle = colorOf(i);
+    if (spec.gradient) {
+      // White at the top of the letters down to a tinted foot: the chrome-sticker look.
+      const g = ctx.createLinearGradient(0, p.y - px * 0.8, 0, p.y + px * 0.1);
+      g.addColorStop(0, s.color);
+      g.addColorStop(0.55, s.color);
+      g.addColorStop(1, mixHex(s.color, s.accent, 0.55));
+      ctx.fillStyle = g;
+    } else ctx.fillStyle = colorOf(i);
     ctx.fillText(p.text, p.x, p.y);
     if (onBox) setShadow(ctx, 'rgba(0,0,0,0.55)', px * 0.2, px * 0.05, pixelScale);
   });
@@ -1086,6 +1231,41 @@ export function drawCaption(
     ctx.fillStyle = spec.box === 'band' ? s.color : s.accent;
     roundRect(ctx, a.x, a.y + px * 0.16, a.w * k, px * 0.1, px * 0.05);
     ctx.fill();
+  }
+  // Stars twinkling around the spoken word, each on its own rhythm.
+  if (spec.sparkles && active >= 0) {
+    const a = placed[active];
+    const since = t - wordStart(active);
+    const cx = a.x + a.w / 2;
+    const cy = a.y - px * 0.35;
+    ctx.save();
+    ctx.fillStyle = '#FFFFFF';
+    for (let k = 0; k < 5; k++) {
+      const ang = k * 1.256 + active * 0.7;
+      const rad = a.w / 2 + px * (0.35 + 0.25 * (k % 2));
+      const tw = 0.5 + 0.5 * Math.sin(since * 7 + k * 1.9);
+      const r = px * (0.1 + 0.16 * tw);
+      ctx.save();
+      ctx.translate(cx + Math.cos(ang) * rad, cy + Math.sin(ang) * rad * 0.75);
+      ctx.rotate(since * 1.5 + k);
+      ctx.globalAlpha = 0.35 + 0.65 * tw;
+      captionStar(ctx, r);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+  // A heart beating after the spoken word.
+  if (spec.heart && active >= 0) {
+    const a = placed[active];
+    const since = t - wordStart(active);
+    const beat = 1 + 0.15 * Math.max(0, Math.sin(since * 6)) ** 3;
+    ctx.save();
+    ctx.translate(a.x + a.w + px * 0.3, a.y - px * 0.3);
+    ctx.fillStyle = s.accent;
+    captionHeart(ctx, px * 0.34 * beat);
+    ctx.fill();
+    ctx.restore();
   }
   // The typing cursor, blinking after the last typed word.
   if (spec.reveal && !rtl) {

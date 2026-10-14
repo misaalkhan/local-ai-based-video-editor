@@ -66,11 +66,16 @@ const STYLES: { id: CaptionStyle; name: string; note: string }[] = [
   { id: 'underline', name: 'Underline', note: 'A bar slides under the spoken word' },
   { id: 'retro', name: 'Retro', note: 'Chunky letters with a hard shadow' },
   { id: 'comic', name: 'Comic', note: 'Comic lettering that wobbles' },
+  { id: 'bubble', name: 'Bubble', note: 'White words on pink pills' },
+  { id: 'coquette', name: 'Coquette', note: 'Serif with a pink underline and a heart' },
+  { id: 'sparkle', name: 'Sparkle', note: 'Glowing script with twinkling stars' },
+  { id: 'y2k', name: 'Y2K', note: 'Chrome bubble letters, pink outline' },
+  { id: 'kawaii', name: 'Kawaii', note: 'Soft bubble handwriting, pink outline' },
 ];
 
 function Sample({ id, active }: { id: CaptionStyle; active: boolean }) {
   const spec = CAPTION_STYLES[id];
-  const caps = ['pop', 'karaoke', 'outline', 'oneword', 'band', 'retro', 'comic'].includes(id);
+  const caps = ['pop', 'karaoke', 'outline', 'oneword', 'band', 'retro', 'comic', 'y2k'].includes(id);
   const words = id === 'oneword' ? ['POP'] : caps ? ['MAKE', 'IT', 'POP'] : ['Make', 'it', 'pop'];
   return (
     <span className={`cap-sample cap-${id} ${active ? 'on' : ''}`} style={{ fontFamily: `"${spec.font}", sans-serif`, fontWeight: spec.weight }}>

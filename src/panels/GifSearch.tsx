@@ -1,5 +1,5 @@
 // Reaction GIF search (Tenor), shared by the Memes tab.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import type { GifEntry } from '../api.ts';
 import { player } from '../engine/player.ts';
@@ -7,16 +7,25 @@ import { runTool } from '../actions.ts';
 import { Spinner } from '../icons.tsx';
 import { Button, Section } from '../ui.tsx';
 
-/** Search box and results for reaction GIFs; a pick lands at the playhead through the same tool the assistant uses. */
-export function GifSearch() {
+/**
+ * Search box and results for reaction GIFs; a pick lands at the playhead through the same tool the assistant uses.
+ * `preset` runs a search chosen elsewhere (a film, a reaction chip): a new `n` runs it again.
+ */
+export function GifSearch({ preset, title = 'Reaction GIFs', placeholder = 'facepalm, mind blown, slow clap…' }: { preset?: { q: string; n: number }; title?: string; placeholder?: string }) {
   const [q, setQ] = useState('');
   const [gifs, setGifs] = useState<GifEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
-  const search = async () => {
-    const query = q.trim();
-    if (!query || busy) return;
+  useEffect(() => {
+    if (!preset?.q) return;
+    setQ(preset.q);
+    void search(preset.q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset?.n]);
+  const search = async (text = q) => {
+    const query = text.trim();
+    if (!query) return;
     setBusy(true);
     setNote(null);
     try {
@@ -39,7 +48,7 @@ export function GifSearch() {
     }
   };
   return (
-    <Section title="Reaction GIFs">
+    <Section title={title}>
       <form
         className="gif-search"
         onSubmit={(e) => {
@@ -47,7 +56,7 @@ export function GifSearch() {
           void search();
         }}
       >
-        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="facepalm, mind blown, slow clap…" aria-label="Search GIFs" />
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} aria-label="Search GIFs" />
         <Button size="sm" icon="sparkles" disabled={busy || !q.trim()} onClick={() => void search()}>
           Search
         </Button>

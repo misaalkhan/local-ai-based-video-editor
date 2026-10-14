@@ -101,6 +101,12 @@ export const CAPTION_PRESETS: Record<CaptionStyle, Omit<CaptionSettings, 'enable
   underline: { style: 'underline', maxWords: 5, uppercase: false, punctuation: true, color: '#FFFFFF', accent: '#FFB703' },
   retro: { style: 'retro', maxWords: 3, uppercase: true, punctuation: false, color: '#FFF4D6', accent: '#FF6B35' },
   comic: { style: 'comic', maxWords: 3, uppercase: true, punctuation: false, color: '#FFE600', accent: '#FFFFFF' },
+  // Girlypop.
+  bubble: { style: 'bubble', maxWords: 4, uppercase: false, punctuation: false, color: '#FFFFFF', accent: '#FF69B4' },
+  coquette: { style: 'coquette', maxWords: 5, uppercase: false, punctuation: true, color: '#FFFFFF', accent: '#FFB6C1' },
+  sparkle: { style: 'sparkle', maxWords: 3, uppercase: false, punctuation: false, color: '#FFFFFF', accent: '#FF5CA8' },
+  y2k: { style: 'y2k', maxWords: 3, uppercase: true, punctuation: false, color: '#FFFFFF', accent: '#FF2E9A' },
+  kawaii: { style: 'kawaii', maxWords: 3, uppercase: false, punctuation: false, color: '#FFFFFF', accent: '#FF8CC6' },
 };
 
 export const DEFAULT_CAPTIONS: CaptionSettings = {

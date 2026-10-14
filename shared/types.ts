@@ -103,7 +103,7 @@ export interface ClipFx {
   lutAmount?: number;
 }
 
-export type TransitionType = 'fade' | 'dip' | 'flash' | 'slide-left' | 'slide-right' | 'slide-up' | 'whip' | 'zoom' | 'blur' | 'glitch' | 'burn';
+export type TransitionType = 'fade' | 'dip' | 'flash' | 'slide-left' | 'slide-right' | 'slide-up' | 'whip' | 'zoom' | 'blur' | 'glitch' | 'burn' | 'heart' | 'sparkle';
 
 /** How a main clip arrives from the one before it. */
 export interface Transition {
@@ -385,7 +385,12 @@ export type CaptionStyle =
   | 'band'
   | 'underline'
   | 'retro'
-  | 'comic';
+  | 'comic'
+  | 'bubble'
+  | 'coquette'
+  | 'sparkle'
+  | 'y2k'
+  | 'kawaii';
 
 export interface CaptionSettings {
   enabled: boolean;

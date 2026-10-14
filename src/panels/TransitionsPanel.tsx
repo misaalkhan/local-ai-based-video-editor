@@ -17,6 +17,8 @@ const TYPES: { id: TransitionType | 'none'; name: string }[] = [
   { id: 'blur', name: 'Blur' },
   { id: 'glitch', name: 'Glitch' },
   { id: 'burn', name: 'Film burn' },
+  { id: 'heart', name: 'Heart' },
+  { id: 'sparkle', name: 'Sparkle' },
 ];
 
 export function TransitionsPanel() {

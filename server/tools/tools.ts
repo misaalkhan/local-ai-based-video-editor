@@ -34,6 +34,7 @@ import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
 import { findRecipe, getRecipes, getSettings, saveRecipe } from '../studio.ts';
 import { findBeats } from '../../shared/beats.ts';
 import { LOOKS } from '../../shared/draw.ts';
+import { CHICK_FLICKS, findQuotes } from '../../shared/chickflicks.ts';
 import { contactSheet, mediaStill, renderStill, stamp } from '../export/still.ts';
 import type { Args, ToolCtx, ToolResult } from './helpers.ts';
 import {
@@ -342,8 +343,8 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'list_library',
-    description: 'List what is available beyond this project: built-in and user sound effects, the user\'s music and b-roll library, voiceover voices and fonts.',
-    schema: obj({ kind: S('What to list.', ['sfx', 'music', 'broll', 'voices', 'fonts', 'luts']) }, ['kind']),
+    description: 'List what is available beyond this project: built-in and user sound effects, the user\'s music and b-roll library, voiceover voices, fonts, imported LUTs and the chick flick quotes (for add_quote).',
+    schema: obj({ kind: S('What to list.', ['sfx', 'music', 'broll', 'voices', 'fonts', 'luts', 'quotes']) }, ['kind']),
     label: (a) => `Listing ${str(a.kind)}`,
     readOnly: true,
     run: async (_ctx, a) => {
@@ -351,6 +352,7 @@ export const TOOLS: ToolDef[] = [
       if (a.kind === 'voices') return { text: `VOICES for add_voiceover:\n${(await listVoices()).map((v) => `  ${v.id}: ${v.name}`).join('\n') || '  (none)'}` };
       if (a.kind === 'luts') return { text: `LUTS for set_clip_look lut=<name>:\n${listLuts().map((l) => `  ${l.name}`).join('\n') || '  (none imported; the user can import .cube files on the Effects tab)'}` };
       if (a.kind === 'fonts') return { text: `FONTS (use the family name with add_text font or set_font):\n${FONT_FAMILIES.map((f) => `  ${f}: ${FONT_NOTES[f] ?? ''}`).join('\n')}` };
+      if (a.kind === 'quotes') return { text: `CHICK FLICK QUOTES (add_quote puts one on as a card or a sticker; find_gif with the film name finds the scene):\n${CHICK_FLICKS.map((f) => `  ${f.title} (${f.year}): ${f.quotes.map((q) => `"${q}"`).join(' | ')}`).join('\n')}` };
       const files = listLibrary(a.kind === 'music' ? 'music' : 'broll');
       return { text: files.length ? `${str(a.kind).toUpperCase()} LIBRARY (refer to a file as "library:<name>"):\n${files.map((f) => `  ${f.name}`).join('\n')}` : `The ${str(a.kind)} library is empty. Only the files in this project are available.` };
     },
@@ -819,7 +821,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'add_transition',
     description: 'Make a main segment arrive from the previous one with a transition instead of a plain cut: fade (cross fade), dip (to black), flash (white flash, for energy and beats), slide-left, slide-right, slide-up, whip (fast blurred whip pan), zoom, blur (one picture blurs into the next), glitch (digital tearing, for tech or chaos), burn (film burn: the picture flares orange and white from a corner, for nostalgia, travel, film looks), or none to remove. Plain cuts are best inside a talking sequence; use transitions sparingly, for a change of scene or topic.',
-    schema: obj({ clip_id: S('The segment that arrives (the second of the pair).'), type: S('Transition.', ['fade', 'dip', 'flash', 'slide-left', 'slide-right', 'slide-up', 'whip', 'zoom', 'blur', 'glitch', 'burn', 'none']), duration_s: N('Length. Default 0.4.') }, ['clip_id', 'type']),
+    schema: obj({ clip_id: S('The segment that arrives (the second of the pair).'), type: S('Transition.', ['fade', 'dip', 'flash', 'slide-left', 'slide-right', 'slide-up', 'whip', 'zoom', 'blur', 'glitch', 'burn', 'heart', 'sparkle', 'none']), duration_s: N('Length. Default 0.4.') }, ['clip_id', 'type']),
     label: () => 'Adding a transition',
     run: (ctx, a) => {
       const v = view(ctx.p);
@@ -951,11 +953,11 @@ export const TOOLS: ToolDef[] = [
   // ------------------------------------------------------------------ graphics
   {
     name: 'add_text',
-    description: `Put text on screen. Styles: hook (bold on a white box, for the opening line), title (huge outlined), subtitle, label (small pill), serif, card (plain, for title cards), meme (block capitals with an outline, top of the frame), comic (BOOM-style lettering, pops in), sticker (tilted yellow sticker, bounces in), neon (glowing script), handwritten (tilted marker handwriting), marker (highlighter stroke behind the words), quote (serif in quotation marks), glitch (cyan and magenta tearing), gradient (two-colour fill, flies in), typewriter (typed in letter by letter on a dark box). Wrap a word in *asterisks* to give it the accent colour. Keep it short: 3-6 words reads in a second or two. The font can match the mood (comic, handwritten, elegant, hype): list_library kind=fonts describes each. ${POSITION}`,
+    description: `Put text on screen. Styles: hook (bold on a white box, for the opening line), title (huge outlined), subtitle, label (small pill), serif, card (plain, for title cards), meme (block capitals with an outline, top of the frame), comic (BOOM-style lettering, pops in), sticker (tilted yellow sticker, bounces in), neon (glowing script), handwritten (tilted marker handwriting), marker (highlighter stroke behind the words), quote (serif in quotation marks), glitch (cyan and magenta tearing), gradient (two-colour fill, flies in), typewriter (typed in letter by letter on a dark box). Girlypop styles: bubblegum (chunky white bubble letters with a pink outline, bounces in), coquette (glowing French script), y2k (candy lettering with a chrome gradient), pinkneon (hot pink neon script), burnbook (pink marker handwriting on a white strip, Mean Girls style), pinksticker (hot pink sticker, bounces in), lovenote (thin pink script), pinkhook (bold on a pale pink box, for the opening line), princess (frilly fairy-tale script), diary (handwriting on a pale pink note, left aligned), cherry (fifties soda-shop lettering), twinkle (sparkly script). Wrap a word in *asterisks* to give it the accent colour. Keep it short: 3-6 words reads in a second or two. The font can match the mood (comic, handwritten, elegant, hype): list_library kind=fonts describes each. ${POSITION}`,
     schema: obj({
       text: S('What it says. Use \\n for a line break.'),
       ...WHEN,
-      style: S('Preset.', ['hook', 'title', 'subtitle', 'label', 'serif', 'card', 'meme', 'comic', 'sticker', 'neon', 'handwritten', 'marker', 'quote', 'glitch', 'gradient', 'typewriter']),
+      style: S('Preset.', ['hook', 'title', 'subtitle', 'label', 'serif', 'card', 'meme', 'comic', 'sticker', 'neon', 'handwritten', 'marker', 'quote', 'glitch', 'gradient', 'typewriter', 'bubblegum', 'coquette', 'y2k', 'pinkneon', 'burnbook', 'pinksticker', 'lovenote', 'pinkhook', 'princess', 'diary', 'cherry', 'twinkle']),
       position: S('Named position or "auto".'),
       x: N('0-1.'),
       y: N('0-1.'),
@@ -985,6 +987,37 @@ export const TOOLS: ToolDef[] = [
       const r = ops.addGraphic(v.doc, { preset: style, props, start, duration, x: pos.x, y: pos.y, name: str(a.name) || `${preset.label}: ${clip(str(a.text), 24)}`, createdBy: ctx.messageId });
       save(ctx, r.doc, 'add_text', `Text "${clip(str(a.text), 40)}" at ${sec(start)}s`);
       return { text: `Added text ${r.item.id} "${clip(str(a.text), 50)}" ${sec(start)}-${sec(start + duration)}s at x=${pos.x.toFixed(2)} y=${pos.y.toFixed(2)} (${pos.how}).` };
+    },
+  },
+  {
+    name: 'add_quote',
+    description: `Put a famous chick flick line on screen (Mean Girls, Clueless, Legally Blonde, The Devil Wears Prada, Barbie, Gossip Girl, Sex and the City, The Princess Diaries, Pretty Woman, 10 Things I Hate About You, Pitch Perfect, The Notebook, Twilight, Gilmore Girls and more; list_library kind=quotes shows every line). Give the film, a few words of the line, or both; the closest line is used. Styles: card (a pink quote card with the film's name under the line, the default), sticker (a tilted hot pink sticker), burnbook (pink marker handwriting), coquette (glowing French script), bubblegum (chunky bubble letters). A line lands on the beat it answers: a reaction, a reveal, a punchline. One or two per piece, never one on every cut. ${POSITION}`,
+    schema: obj({
+      query: S('The film and/or words of the line, e.g. "mean girls fetch" or "what like it\'s hard".'),
+      ...WHEN,
+      style: S('How it looks.', ['card', 'sticker', 'burnbook', 'coquette', 'bubblegum']),
+      position: S('Named position or "auto".'),
+      x: N('0-1.'),
+      y: N('0-1.'),
+      name: S('Label on the timeline.'),
+    }, ['query']),
+    label: (a) => `Adding a quote (${clip(str(a.query), 30)})`,
+    run: (ctx, a) => {
+      const hits = findQuotes(str(a.query), 3);
+      if (!hits.length) bad(`No chick flick line matches "${a.query}". list_library kind=quotes shows them; add_text puts any other line on screen.`);
+      const { film, quote } = hits[0];
+      const v = view(ctx.p);
+      const style = ['card', 'sticker', 'burnbook', 'coquette', 'bubblegum'].includes(str(a.style)) ? str(a.style) : 'card';
+      const presetId = style === 'card' ? 'quotecard' : style === 'sticker' ? 'pinksticker' : style;
+      const preset = GRAPHIC_PRESETS[presetId];
+      const long = quote.length > 40;
+      const duration = Math.max(preset.duration, 1.2 + quote.split(' ').length * 0.32);
+      const { start, duration: dur } = span(ctx.p, a, v, duration);
+      const pos = a.position === undefined && a.x === undefined && a.y === undefined ? { x: preset.x, y: preset.y, how: `the ${style} position` } : place(ctx.p, v, a.position ?? 'auto', start + Math.min(0.5, dur / 2), optNum(a.x, 'x'), optNum(a.y, 'y'));
+      const props: Record<string, unknown> = style === 'card' ? { emoji: film.emoji, title: quote, subtitle: `${film.title} (${film.year})` } : { text: quote, uppercase: false, ...(long ? { size: Number(preset.props.size ?? 0.08) * 0.7 } : {}) };
+      const r = ops.addGraphic(v.doc, { preset: presetId, props, start, duration: dur, x: pos.x, y: pos.y, name: str(a.name) || `Quote: ${clip(quote, 24)}`, createdBy: ctx.messageId });
+      save(ctx, r.doc, 'add_quote', `"${clip(quote, 40)}" (${film.title}) at ${sec(start)}s`);
+      return { text: `Added the ${film.title} line "${quote}" as ${r.item.id} (${style}) ${sec(start)}-${sec(start + dur)}s at x=${pos.x.toFixed(2)} y=${pos.y.toFixed(2)} (${pos.how}).${hits.length > 1 ? ` Other matches: ${hits.slice(1).map((h) => `"${h.quote}" (${h.film.title})`).join(', ')}.` : ''}` };
     },
   },
   {
@@ -1247,8 +1280,8 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
   },
   {
     name: 'add_vfx',
-    description: 'An effects layer over the picture for a stretch of time: confetti (a win, a birthday, a reveal), sparks (fire, hype, energy), snow, petals (soft, romantic, spring), rain (mood), bokeh (dreamy soft lights, music and night), lightleak (warm film light at the edges, nostalgia and travel), flare (a lens flare at x,y, for a sun or a shine; moves with keyframes). density/speed/size scale the particles (1 = normal); color forces one colour; hue (light leak) and intensity (leak and flare). Every frame is the same in the preview and the export.',
-    schema: obj({ kind: S('The effect.', ['confetti', 'sparks', 'snow', 'petals', 'rain', 'bokeh', 'lightleak', 'flare']), start: N('Timeline seconds.'), duration: N('Seconds, default 4.'), density: N('0.1-3.'), speed: N('0.2-3.'), size: N('0.3-3.'), color: S('One colour for the particles, e.g. #FFD166.'), hue: N('Light leak hue 0-360, default 28 (amber).'), intensity: N('0-2 for lightleak and flare.'), x: N('Flare: where the light is, 0-1.'), y: N('Flare: 0-1.') }, ['kind', 'start']),
+    description: 'An effects layer over the picture for a stretch of time: confetti (a win, a birthday, a reveal), sparks (fire, hype, energy), snow, petals (soft, romantic, spring), rain (mood), bokeh (dreamy soft lights, music and night), lightleak (warm film light at the edges, nostalgia and travel), flare (a lens flare at x,y, for a sun or a shine; moves with keyframes). Girlypop: hearts (pink hearts floating up and beating), sparkles (twinkling stars, the girlypop shimmer), bubbles (soap bubbles rising), butterflies (pastel butterflies), glitter (fine gold and pink glitter everywhere), pinkleak (a pink light leak). density/speed/size scale the particles (1 = normal); color forces one colour; hue (light leak) and intensity (leak and flare). Every frame is the same in the preview and the export.',
+    schema: obj({ kind: S('The effect.', ['confetti', 'sparks', 'snow', 'petals', 'rain', 'bokeh', 'lightleak', 'flare', 'hearts', 'sparkles', 'bubbles', 'butterflies', 'glitter', 'pinkleak']), start: N('Timeline seconds.'), duration: N('Seconds, default 4.'), density: N('0.1-3.'), speed: N('0.2-3.'), size: N('0.3-3.'), color: S('One colour for the particles, e.g. #FFD166.'), hue: N('Light leak hue 0-360, default 28 (amber).'), intensity: N('0-2 for lightleak and flare.'), x: N('Flare: where the light is, 0-1.'), y: N('Flare: 0-1.') }, ['kind', 'start']),
     label: (a) => `Adding ${str(a.kind)}`,
     run: (ctx, a) => {
       const kind = str(a.kind);
@@ -1502,10 +1535,10 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
   },
   {
     name: 'set_captions',
-    description: 'Turn word-timed captions on or off and style them. Presets: pop (2-3 big bold words, the spoken word highlighted), highlight (a box follows the spoken word), karaoke (words fill in), clean (a plain line), boxed (classic subtitles), outline (tall block capitals with a thick outline), oneword (one huge word at a time, for fast energetic talk), glow (neon glow in the accent colour), glass (frosted pill, elegant), typewriter (typed in with a cursor, dry or techy), band (full-width colour band like a headline), underline (a bar slides under the spoken word), retro (chunky letters with a hard shadow), comic (comic lettering that wobbles). Captions follow every cut automatically. Use emphasize to keep key words (numbers, names, the payoff) in the accent colour, one or two per sentence at most. Use fix to correct a misheard word.',
+    description: 'Turn word-timed captions on or off and style them. Presets: pop (2-3 big bold words, the spoken word highlighted), highlight (a box follows the spoken word), karaoke (words fill in), clean (a plain line), boxed (classic subtitles), outline (tall block capitals with a thick outline), oneword (one huge word at a time, for fast energetic talk), glow (neon glow in the accent colour), glass (frosted pill, elegant), typewriter (typed in with a cursor, dry or techy), band (full-width colour band like a headline), underline (a bar slides under the spoken word), retro (chunky letters with a hard shadow), comic (comic lettering that wobbles). Girlypop: bubble (rounded white words on pink pills), coquette (serif with a pink underline and a beating heart on the spoken word), sparkle (pink glowing script with stars twinkling around the spoken word), y2k (chrome bubble letters with a pink outline and shadow), kawaii (soft bubble handwriting with a pink outline that wobbles). Captions follow every cut automatically. Use emphasize to keep key words (numbers, names, the payoff) in the accent colour, one or two per sentence at most. Use fix to correct a misheard word.',
     schema: obj({
       enabled: B('Show captions.'),
-      preset: S('Style.', ['pop', 'highlight', 'karaoke', 'clean', 'boxed', 'outline', 'oneword', 'glow', 'glass', 'typewriter', 'band', 'underline', 'retro', 'comic']),
+      preset: S('Style.', ['pop', 'highlight', 'karaoke', 'clean', 'boxed', 'outline', 'oneword', 'glow', 'glass', 'typewriter', 'band', 'underline', 'retro', 'comic', 'bubble', 'coquette', 'sparkle', 'y2k', 'kawaii']),
       words_per_line: N('Words shown at a time (1-9).'),
       position_y: N('Vertical centre, 0 = top, 1 = bottom. Default 0.7. In vertical video do not go below the 0.74 line (that is, keep position_y <= 0.74) or apps cover it.'),
       size: N('Size multiplier, 1 = default.'),
@@ -1622,7 +1655,7 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
   },
   {
     name: 'apply_recipe',
-    description: 'Apply a recipe (built in: talking-head, meme, tutorial, vlog, elegant, montage, hype, cinematic, retro, clean, plus any the user saved): sets the captions and the colour look right away and tells you the pacing, fonts, music level and effects to follow for the rest of the edit (then do those steps yourself: remove_silences, remove_fillers, add_text with the font, set_music, the effects in the notes).',
+    description: 'Apply a recipe (built in: talking-head, meme, tutorial, vlog, elegant, montage, hype, cinematic, retro, clean, girlypop, coquette, plus any the user saved): sets the captions and the colour look right away and tells you the pacing, fonts, music level and effects to follow for the rest of the edit (then do those steps yourself: remove_silences, remove_fillers, add_text with the font, set_music, the effects in the notes).',
     schema: obj({ recipe: S('Recipe name or id from list_recipes.') }, ['recipe']),
     label: (a) => `Applying the "${str(a.recipe)}" style`,
     run: (ctx, a) => {

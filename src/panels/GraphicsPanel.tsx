@@ -24,6 +24,12 @@ const VFX: { id: string; name: string; note: string; icon: IconName }[] = [
   { id: 'bokeh', name: 'Bokeh', note: 'Big soft lights, dreamy', icon: 'sparkles' },
   { id: 'lightleak', name: 'Light leak', note: 'Warm light washing over the edges', icon: 'eye' },
   { id: 'flare', name: 'Lens flare', note: 'A sun, placed where you drag it', icon: 'target' },
+  { id: 'hearts', name: 'Hearts', note: 'Pink hearts floating up and beating', icon: 'heart' },
+  { id: 'sparkles', name: 'Sparkles', note: 'Twinkling stars, the girlypop shimmer', icon: 'sparkles' },
+  { id: 'bubbles', name: 'Bubbles', note: 'Soap bubbles rising and wobbling', icon: 'sparkles' },
+  { id: 'butterflies', name: 'Butterflies', note: 'Pastel butterflies fluttering across', icon: 'heart' },
+  { id: 'glitter', name: 'Glitter', note: 'Fine gold and pink glitter everywhere', icon: 'sparkles' },
+  { id: 'pinkleak', name: 'Pink light leak', note: 'Pink light washing over the edges', icon: 'eye' },
 ];
 
 export function GraphicsPanel() {

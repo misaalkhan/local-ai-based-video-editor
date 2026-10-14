@@ -22,6 +22,8 @@ export interface Ctx2D {
   closePath(): void;
   moveTo(x: number, y: number): void;
   lineTo(x: number, y: number): void;
+  bezierCurveTo(cp1x: number, cp1y: number, cp2x: number, cp2y: number, x: number, y: number): void;
+  quadraticCurveTo(cpx: number, cpy: number, x: number, y: number): void;
   arcTo(x1: number, y1: number, x2: number, y2: number, r: number): void;
   arc(x: number, y: number, r: number, a0: number, a1: number): void;
   ellipse(x: number, y: number, rx: number, ry: number, rot: number, a0: number, a1: number): void;
@@ -515,9 +517,11 @@ function drawPopup(t: TCtx): void {
   const badge = emoji ? 78 * u : 0;
   const gap = emoji ? 20 * u : 0;
   const maxW = 560 * u;
-  const titlePx = 38 * u;
+  const titlePx = 38 * u * num(props.titleScale, 1);
   const subPx = 27 * u;
-  ctx.font = fontString('Inter', 800, titlePx);
+  const titleFont = str(props.font, 'Inter');
+  const titleWeight = num(props.weight, 800);
+  ctx.font = fontString(titleFont, titleWeight, titlePx);
   const tl = layoutText(ctx, title, maxW);
   ctx.font = fontString('Inter', 500, subPx);
   const sl = subtitle ? layoutText(ctx, subtitle, maxW) : null;
@@ -542,7 +546,7 @@ function drawPopup(t: TCtx): void {
   }
   const tx = -w / 2 + pad + badge + gap;
   let ty = -textH / 2;
-  ctx.font = fontString('Inter', 800, titlePx);
+  ctx.font = fontString(titleFont, titleWeight, titlePx);
   ty += paintText(ctx, tl, tx, ty, titlePx, { color: th.fg, accent: th.accent });
   if (sl) {
     ctx.font = fontString('Inter', 500, subPx);
@@ -990,6 +994,13 @@ export const GRAPHIC_PRESETS: Record<string, GraphicPreset> = {
   petals: { template: 'particles', label: 'Petals', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 6, props: { kind: 'petals', density: 1, speed: 1, size: 1, seed: 6 } },
   lightleak: { template: 'lightleak', label: 'Light leak', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 4, props: { hue: 28, intensity: 0.7, seed: 1 } },
   flare: { template: 'flare', label: 'Lens flare', x: 0.78, y: 0.22, animIn: 'fade', animOut: 'fade', duration: 4, props: { intensity: 0.8, color: '#FFE2B0', anamorphic: true } },
+  // Girlypop effects.
+  hearts: { template: 'particles', label: 'Hearts', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 5, props: { kind: 'hearts', density: 1, speed: 1, size: 1, seed: 7 } },
+  sparkles: { template: 'particles', label: 'Sparkles', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 5, props: { kind: 'sparkles', density: 1, speed: 1, size: 1, seed: 8 } },
+  bubbles: { template: 'particles', label: 'Bubbles', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 6, props: { kind: 'bubbles', density: 1, speed: 1, size: 1, seed: 9 } },
+  butterflies: { template: 'particles', label: 'Butterflies', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 6, props: { kind: 'butterflies', density: 1, speed: 1, size: 1, seed: 10 } },
+  glitter: { template: 'particles', label: 'Glitter', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 5, props: { kind: 'glitter', density: 1, speed: 1, size: 1, seed: 11 } },
+  pinkleak: { template: 'lightleak', label: 'Pink light leak', x: 0.5, y: 0.5, animIn: 'fade', animOut: 'fade', duration: 4, props: { hue: 330, intensity: 0.7, seed: 3 } },
   hook: {
     template: 'text', label: 'Hook', x: 0.5, y: 0.2, animIn: 'pop', animOut: 'fade', duration: 3,
     props: { text: 'Your hook here', font: 'Montserrat', weight: 900, size: 0.074, color: '#111111', background: '#FFFFFF', padding: 0.42, radius: 0.3, maxWidth: 0.8 },
@@ -1053,6 +1064,59 @@ export const GRAPHIC_PRESETS: Record<string, GraphicPreset> = {
   typewriter: {
     template: 'text', label: 'Typewriter', x: 0.5, y: 0.3, animIn: 'typewriter', animOut: 'fade', duration: 4,
     props: { text: 'Day 1 of learning to edit.', font: 'Space Mono', weight: 700, size: 0.052, color: '#FFFFFF', background: '#111111E0', padding: 0.5, radius: 0.12, maxWidth: 0.84, align: 'left' },
+  },
+  // Girlypop text.
+  bubblegum: {
+    template: 'text', label: 'Bubblegum', x: 0.5, y: 0.3, rotation: -3, animIn: 'bounce', animOut: 'pop', duration: 3,
+    props: { text: 'so cute', font: 'Chewy', weight: 400, size: 0.11, color: '#FFFFFF', stroke: '#FF4FA3', strokeWidth: 0.09, offsetShadow: '#C2185B', offsetDepth: 0.06, maxWidth: 0.86 },
+  },
+  coquette: {
+    template: 'text', label: 'Coquette', x: 0.5, y: 0.3, rotation: -2, animIn: 'fade', animOut: 'fade', duration: 3.5,
+    props: { text: 'coquette', font: 'Parisienne', weight: 400, size: 0.13, color: '#FFFFFF', glow: '#FFB6C1', maxWidth: 0.86 },
+  },
+  y2k: {
+    template: 'text', label: 'Y2K', x: 0.5, y: 0.35, animIn: 'zoom', animOut: 'fade', duration: 3,
+    props: { text: 'Y2K', font: 'Emilys Candy', weight: 400, size: 0.13, color: '#FFF0F7', gradient: '#FF5CB8', stroke: '#B4005A', strokeWidth: 0.06, shadow: true, maxWidth: 0.86 },
+  },
+  pinkneon: {
+    template: 'text', label: 'Pink neon', x: 0.5, y: 0.35, animIn: 'fade', animOut: 'fade', duration: 3,
+    props: { text: 'hot girl era', font: 'Kaushan Script', weight: 400, size: 0.1, color: '#FFFFFF', glow: '#FF2E9A', maxWidth: 0.86 },
+  },
+  burnbook: {
+    template: 'text', label: 'Burn Book', x: 0.5, y: 0.3, rotation: -2, animIn: 'pop', animOut: 'fade', duration: 3,
+    props: { text: 'she doesn\u2019t even go here', font: 'Gochi Hand', weight: 400, size: 0.08, color: '#E6007E', highlighter: '#FFFFFF', maxWidth: 0.84, lineHeight: 1.3 },
+  },
+  pinksticker: {
+    template: 'text', label: 'Pink sticker', x: 0.5, y: 0.25, rotation: -6, animIn: 'bounce', animOut: 'pop', duration: 2.5,
+    props: { text: 'SLAY', font: 'Fredoka', weight: 700, size: 0.07, color: '#FFFFFF', background: '#FF69B4', border: '#FFFFFF', borderWidth: 0.1, padding: 0.5, radius: 0.3, uppercase: true, maxWidth: 0.8 },
+  },
+  lovenote: {
+    template: 'text', label: 'Love note', x: 0.5, y: 0.3, rotation: -3, animIn: 'fade', animOut: 'fade', duration: 3.5,
+    props: { text: 'love this for us', font: 'Sacramento', weight: 400, size: 0.12, color: '#FF4D8D', shadow: true, maxWidth: 0.86 },
+  },
+  pinkhook: {
+    template: 'text', label: 'Pink hook', x: 0.5, y: 0.2, animIn: 'pop', animOut: 'fade', duration: 3,
+    props: { text: 'Your girly hook here', font: 'Baloo 2', weight: 800, size: 0.072, color: '#B4005A', background: '#FFE4EF', padding: 0.42, radius: 0.3, maxWidth: 0.8 },
+  },
+  princess: {
+    template: 'text', label: 'Princess', x: 0.5, y: 0.3, animIn: 'fade', animOut: 'fade', duration: 3.5,
+    props: { text: 'princess treatment', font: 'Princess Sofia', weight: 400, size: 0.12, color: '#FFFFFF', glow: '#FFB6E6', maxWidth: 0.86 },
+  },
+  diary: {
+    template: 'text', label: 'Diary', x: 0.5, y: 0.3, rotation: -1, animIn: 'fade', animOut: 'fade', duration: 4,
+    props: { text: 'dear diary, today was a lot', font: 'Shadows Into Light', weight: 400, size: 0.07, color: '#4A2040', background: '#FFF5FA', padding: 0.5, radius: 0.15, maxWidth: 0.84, align: 'left', lineHeight: 1.3 },
+  },
+  cherry: {
+    template: 'text', label: 'Cherry', x: 0.5, y: 0.3, rotation: -2, animIn: 'pop', animOut: 'pop', duration: 3,
+    props: { text: 'cherry on top', font: 'Cherry Cream Soda', weight: 400, size: 0.1, color: '#FFFFFF', stroke: '#D81B60', strokeWidth: 0.07, offsetShadow: '#880E4F', offsetDepth: 0.06, maxWidth: 0.86 },
+  },
+  twinkle: {
+    template: 'text', label: 'Twinkle', x: 0.5, y: 0.3, animIn: 'fade', animOut: 'fade', duration: 3.5,
+    props: { text: 'dreamy', font: 'Twinkle Star', weight: 400, size: 0.13, color: '#FFFFFF', glow: '#FFD1E8', maxWidth: 0.86 },
+  },
+  quotecard: {
+    template: 'popup', label: 'Quote card', x: 0.5, y: 0.26, animIn: 'pop', animOut: 'fade', duration: 3.5,
+    props: { emoji: '🎀', title: 'On Wednesdays we wear pink', subtitle: 'Mean Girls (2004)', theme: 'light', background: '#FFE4EF', color: '#B4005A', accent: '#FF69B4', font: 'Playfair Display', weight: 900 },
   },
   popup: {
     template: 'popup', label: 'Pop-up card', x: 0.5, y: 0.24, animIn: 'pop', animOut: 'fade', duration: 3,

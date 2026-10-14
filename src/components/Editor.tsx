@@ -22,6 +22,7 @@ import { MediaPanel } from '../panels/MediaPanel.tsx';
 import { MusicPanel } from '../panels/MusicPanel.tsx';
 import { SfxPanel } from '../panels/SfxPanel.tsx';
 import { MemesPanel } from '../panels/MemesPanel.tsx';
+import { GirlypopPanel } from '../panels/GirlypopPanel.tsx';
 import { CaptionsPanel } from '../panels/CaptionsPanel.tsx';
 import { TextPanel } from '../panels/TextPanel.tsx';
 import { GraphicsPanel } from '../panels/GraphicsPanel.tsx';
@@ -34,6 +35,7 @@ const RAIL: { id: LeftPanel; icon: IconName; label: string }[] = [
   { id: 'music', icon: 'music', label: 'Music' },
   { id: 'sounds', icon: 'volume', label: 'Sounds' },
   { id: 'memes', icon: 'sparkles', label: 'Memes' },
+  { id: 'girlypop', icon: 'heart', label: 'Girlypop' },
   { id: 'captions', icon: 'captions', label: 'Captions' },
   { id: 'text', icon: 'text', label: 'Text' },
   { id: 'graphics', icon: 'layers', label: 'Overlays' },
@@ -236,6 +238,7 @@ export function Editor({ projectId }: { projectId: string }) {
           {ui.left === 'music' && <MusicPanel />}
           {ui.left === 'sounds' && <SfxPanel />}
           {ui.left === 'memes' && <MemesPanel />}
+          {ui.left === 'girlypop' && <GirlypopPanel />}
           {ui.left === 'captions' && <CaptionsPanel />}
           {ui.left === 'text' && <TextPanel />}
           {ui.left === 'graphics' && <GraphicsPanel />}

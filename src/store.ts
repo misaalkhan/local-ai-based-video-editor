@@ -33,7 +33,7 @@ export interface Toast {
   action?: { label: string; run: () => void };
 }
 
-export type LeftPanel = 'media' | 'music' | 'sounds' | 'memes' | 'captions' | 'text' | 'graphics' | 'effects' | 'transitions' | 'edit';
+export type LeftPanel = 'media' | 'music' | 'sounds' | 'memes' | 'girlypop' | 'captions' | 'text' | 'graphics' | 'effects' | 'transitions' | 'edit';
 export type RightPanel = 'chat' | 'transcript';
 
 export interface UiState {

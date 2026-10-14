@@ -1,12 +1,13 @@
 // Visual effects drawn by the graphics pass: particle systems (confetti,
-// snow, sparks, bokeh, rain, petals), light leaks and lens flares. Every
+// snow, sparks, bokeh, rain, petals, hearts, sparkles, bubbles, butterflies,
+// glitter), light leaks and lens flares. Every
 // effect is a pure function of the item's local time and a seed, with no
 // state between frames, which is what keeps the preview and the export
 // identical and lets any frame be drawn on its own.
 
 import type { Ctx2D } from './graphics.ts';
 
-export type ParticleKind = 'confetti' | 'snow' | 'sparks' | 'bokeh' | 'rain' | 'petals';
+export type ParticleKind = 'confetti' | 'snow' | 'sparks' | 'bokeh' | 'rain' | 'petals' | 'hearts' | 'sparkles' | 'bubbles' | 'butterflies' | 'glitter';
 
 export const PARTICLE_KINDS: { id: ParticleKind; label: string; hint: string }[] = [
   { id: 'confetti', label: 'Confetti', hint: 'A celebration: coloured paper falling and tumbling.' },
@@ -15,7 +16,39 @@ export const PARTICLE_KINDS: { id: ParticleKind; label: string; hint: string }[]
   { id: 'bokeh', label: 'Bokeh', hint: 'Big soft lights drifting slowly, dreamy and warm.' },
   { id: 'rain', label: 'Rain', hint: 'Streaks of rain falling at a slant.' },
   { id: 'petals', label: 'Petals', hint: 'Pink petals swaying down.' },
+  { id: 'hearts', label: 'Hearts', hint: 'Pink hearts floating up and pulsing, for love and cute moments.' },
+  { id: 'sparkles', label: 'Sparkles', hint: 'Twinkling four-point stars, the girlypop shimmer.' },
+  { id: 'bubbles', label: 'Bubbles', hint: 'Soap bubbles rising and wobbling.' },
+  { id: 'butterflies', label: 'Butterflies', hint: 'Pastel butterflies fluttering across.' },
+  { id: 'glitter', label: 'Glitter', hint: 'Fine gold and pink glitter twinkling everywhere.' },
 ];
+
+/** The girlypop palettes. */
+const HEARTS = ['#FF4D8D', '#FF85B3', '#FFB6D1', '#FF2E7E', '#FFC8DD'];
+const SPARKLE = ['#FFFFFF', '#FFE9F3', '#FFD1E8', '#FFF3B0'];
+const BUTTERFLY = ['#FFB3D9', '#C8B6FF', '#B8E8FF', '#FFD6A5', '#FFADC6'];
+const GLITTER = ['#FFF4C2', '#FFD700', '#FFFFFF', '#FFB6D1', '#FFC0E8'];
+
+/** A heart around the origin, `s` wide. */
+function heartPath(ctx: Ctx2D, s: number): void {
+  ctx.beginPath();
+  ctx.moveTo(0, s * 0.35);
+  ctx.bezierCurveTo(s * 0.6, -s * 0.1, s * 0.45, -s * 0.55, 0, -s * 0.2);
+  ctx.bezierCurveTo(-s * 0.45, -s * 0.55, -s * 0.6, -s * 0.1, 0, s * 0.35);
+  ctx.closePath();
+}
+
+/** A four-point star around the origin, `r` from centre to tip. */
+function starPath(ctx: Ctx2D, r: number): void {
+  const w = r * 0.22;
+  ctx.beginPath();
+  ctx.moveTo(0, -r);
+  ctx.quadraticCurveTo(0, 0, w, 0);
+  ctx.quadraticCurveTo(0, 0, 0, r);
+  ctx.quadraticCurveTo(0, 0, -w, 0);
+  ctx.quadraticCurveTo(0, 0, 0, -r);
+  ctx.closePath();
+}
 
 const CONFETTI = ['#FF3B6B', '#FFD166', '#06D6A0', '#4CC9F0', '#F7B801', '#FF8FAB', '#9B5DE5', '#FFFFFF'];
 
@@ -59,7 +92,7 @@ interface Particle {
   depth: number;
 }
 
-const BASE_COUNT: Record<ParticleKind, number> = { confetti: 110, snow: 140, sparks: 90, bokeh: 28, rain: 220, petals: 55 };
+const BASE_COUNT: Record<ParticleKind, number> = { confetti: 110, snow: 140, sparks: 90, bokeh: 28, rain: 220, petals: 55, hearts: 40, sparkles: 60, bubbles: 45, butterflies: 14, glitter: 260 };
 
 /** The particles of an item, decided once by its seed. */
 function particles(kind: ParticleKind, seed: number, density: number, color: string | null): Particle[] {
@@ -87,6 +120,21 @@ function particles(kind: ParticleKind, seed: number, density: number, color: str
         break;
       case 'petals':
         out.push({ ...base, vx: (r() - 0.5) * 0.05, vy: 0.08 + r() * 0.1, size: 0.7 + r() * 0.8, color: color ?? ['#FFB7C5', '#FF9EBB', '#FFD1DC'][i % 3] });
+        break;
+      case 'hearts':
+        out.push({ ...base, vx: (r() - 0.5) * 0.03, vy: -(0.06 + r() * 0.1), size: 0.5 + depth * 1.1, color: color ?? HEARTS[i % HEARTS.length] });
+        break;
+      case 'sparkles':
+        out.push({ ...base, vx: (r() - 0.5) * 0.01, vy: -(0.004 + r() * 0.012), size: 0.4 + r() * 1.1, color: color ?? SPARKLE[i % SPARKLE.length] });
+        break;
+      case 'bubbles':
+        out.push({ ...base, vx: (r() - 0.5) * 0.02, vy: -(0.05 + r() * 0.09), size: 0.4 + r() * 1.3, color: color ?? '#FFFFFF' });
+        break;
+      case 'butterflies':
+        out.push({ ...base, vx: (r() < 0.5 ? 1 : -1) * (0.04 + r() * 0.06), vy: -(0.01 + r() * 0.03), size: 0.6 + depth * 0.9, color: color ?? BUTTERFLY[i % BUTTERFLY.length] });
+        break;
+      case 'glitter':
+        out.push({ ...base, vx: 0, vy: 0.01 + r() * 0.02, size: 0.4 + r() * 0.9, color: color ?? GLITTER[i % GLITTER.length] });
         break;
     }
   }
@@ -119,11 +167,11 @@ export function drawParticles(f: VfxFrame): void {
   ctx.beginPath();
   ctx.rect(fx, fy, W, H);
   ctx.clip();
-  if (kind === 'sparks' || kind === 'bokeh') ctx.globalCompositeOperation = 'lighter';
+  if (kind === 'sparks' || kind === 'bokeh' || kind === 'sparkles' || kind === 'glitter') ctx.globalCompositeOperation = 'lighter';
   const baseAlpha = ctx.globalAlpha;
   for (const p of list) {
     // Position as a pure function of time; wrapped so the stream never ends.
-    const sway = kind === 'rain' ? 0 : Math.sin(t * (0.8 + p.depth) + p.phase) * (kind === 'petals' ? 0.05 : kind === 'confetti' ? 0.03 : 0.015);
+    const sway = kind === 'rain' || kind === 'glitter' ? 0 : Math.sin(t * (0.8 + p.depth) + p.phase) * (kind === 'petals' ? 0.05 : kind === 'confetti' ? 0.03 : kind === 'butterflies' ? 0.06 : 0.015);
     const x = wrap(p.x + (p.vx + wind * 0.1) * t + sway, -0.1, 1.1);
     const y = wrap(p.y + p.vy * t, -0.12, 1.12);
     const px = fx + x * W;
@@ -202,6 +250,112 @@ export function drawParticles(f: VfxFrame): void {
         ctx.globalAlpha = baseAlpha * 0.9;
         ctx.beginPath();
         ctx.ellipse(0, 0, 16 * s, 9.5 * s * (0.4 + 0.6 * Math.abs(Math.sin(t * 2 + p.phase))), 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case 'hearts': {
+        // Float up, tilt gently and beat like a heart.
+        const beat = 1 + 0.12 * Math.max(0, Math.sin(t * 4 + p.phase)) ** 3;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(0.25 * Math.sin(t * 1.2 + p.phase));
+        ctx.globalAlpha = baseAlpha * (0.55 + p.depth * 0.45);
+        heartPath(ctx, 34 * s * beat);
+        ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case 'sparkles': {
+        // Each star twinkles on its own rhythm and turns slowly; a soft halo under the bright ones.
+        const tw = 0.5 + 0.5 * Math.sin(t * (2.5 + p.depth * 2) + p.phase);
+        const r = 16 * s * (0.5 + 0.5 * tw);
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.globalAlpha = baseAlpha * (0.25 + 0.75 * tw);
+        if (tw > 0.6) {
+          const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 1.6);
+          g.addColorStop(0, p.color);
+          g.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = g;
+          ctx.globalAlpha = baseAlpha * (tw - 0.6) * 0.8;
+          ctx.beginPath();
+          ctx.arc(0, 0, r * 1.6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = baseAlpha * (0.25 + 0.75 * tw);
+        }
+        ctx.rotate(p.phase + t * 0.3);
+        ctx.fillStyle = p.color;
+        starPath(ctx, r);
+        ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case 'bubbles': {
+        // A thin rim, a faint fill and a highlight; wobbles a little as it rises.
+        const r = 20 * s;
+        const wob = 1 + 0.06 * Math.sin(t * 5 + p.phase);
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.scale(wob, 1 / wob);
+        ctx.globalAlpha = baseAlpha * (0.35 + p.depth * 0.4);
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = Math.max(1, 1.6 * s);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath();
+        ctx.ellipse(-r * 0.4, -r * 0.4, r * 0.22, r * 0.14, -0.7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case 'butterflies': {
+        // Two wings that flap by folding towards the body; the body a thin dark line.
+        const flap = Math.abs(Math.sin(t * 9 + p.phase));
+        const w = 22 * s;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(0.3 * Math.sin(t * 1.5 + p.phase) + (p.vx < 0 ? 0.2 : -0.2));
+        ctx.globalAlpha = baseAlpha * 0.92;
+        ctx.fillStyle = p.color;
+        for (const side of [-1, 1]) {
+          ctx.save();
+          ctx.scale(side * (0.25 + 0.75 * flap), 1);
+          ctx.beginPath();
+          ctx.ellipse(w * 0.55, -w * 0.25, w * 0.55, w * 0.42, 0.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(w * 0.42, w * 0.3, w * 0.4, w * 0.3, -0.4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.strokeStyle = 'rgba(70,30,60,0.8)';
+        ctx.lineWidth = Math.max(1, 2 * s);
+        ctx.beginPath();
+        ctx.moveTo(0, -w * 0.45);
+        ctx.lineTo(0, w * 0.45);
+        ctx.stroke();
+        ctx.restore();
+        break;
+      }
+      case 'glitter': {
+        // Tiny specks that flash on and off at their own pace.
+        const tw = Math.sin(t * (6 + p.depth * 6) + p.phase);
+        if (tw < 0.2) break;
+        const r = 3.2 * s * tw;
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(p.phase);
+        ctx.globalAlpha = baseAlpha * tw;
+        ctx.fillStyle = p.color;
+        starPath(ctx, r * 1.8);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.6, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
         break;

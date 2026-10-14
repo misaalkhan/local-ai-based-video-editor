@@ -51,3 +51,26 @@ fetch Yellowtail 400 Yellowtail-400.ttf
 fetch Space+Grotesk 700 SpaceGrotesk-700.ttf
 fetch Cormorant+Garamond 700 CormorantGaramond-700.ttf
 fetch Space+Mono 700 SpaceMono-700.ttf
+# The girlypop pack: scripts, handwriting, bubble letters and fairy-tale faces for cute and girly edits.
+fetch Great+Vibes 400 GreatVibes-400.ttf
+fetch Sacramento 400 Sacramento-400.ttf
+fetch Satisfy 400 Satisfy-400.ttf
+fetch Cookie 400 Cookie-400.ttf
+fetch Parisienne 400 Parisienne-400.ttf
+fetch Kaushan+Script 400 KaushanScript-400.ttf
+fetch Grand+Hotel 400 GrandHotel-400.ttf
+fetch Playball 400 Playball-400.ttf
+fetch Shadows+Into+Light 400 ShadowsIntoLight-400.ttf
+fetch Indie+Flower 400 IndieFlower-400.ttf
+fetch Gochi+Hand 400 GochiHand-400.ttf
+fetch Amatic+SC 700 AmaticSC-700.ttf
+fetch Chewy 400 Chewy-400.ttf
+fetch Sniglet 800 Sniglet-800.ttf
+fetch Baloo+2 800 Baloo2-800.ttf
+fetch Bubblegum+Sans 400 BubblegumSans-400.ttf
+fetch Fuzzy+Bubbles 700 FuzzyBubbles-700.ttf
+fetch Borel 400 Borel-400.ttf
+fetch Emilys+Candy 400 EmilysCandy-400.ttf
+fetch Princess+Sofia 400 PrincessSofia-400.ttf
+fetch Cherry+Cream+Soda 400 CherryCreamSoda-400.ttf
+fetch Twinkle+Star 400 TwinkleStar-400.ttf
