@@ -61,6 +61,16 @@ const FIELDS: Record<GraphicTemplate, FieldDef[]> = {
     ACCENT,
   ],
   headline: [{ key: 'source', label: 'Source', type: 'text' }, { key: 'title', label: 'Headline', type: 'multiline' }, { key: 'subtitle', label: 'Date or detail', type: 'text' }, THEME, ACCENT],
+  reddit: [
+    { key: 'subreddit', label: 'Subreddit', type: 'text' },
+    { key: 'author', label: 'Posted by', type: 'text' },
+    { key: 'when', label: 'When', type: 'text' },
+    { key: 'title', label: 'Title', type: 'multiline' },
+    { key: 'body', label: 'Post text', type: 'multiline' },
+    { key: 'score', label: 'Upvotes', type: 'text' },
+    { key: 'comments', label: 'Comments', type: 'text' },
+    THEME,
+  ],
   'lower-third': [{ key: 'title', label: 'Name', type: 'text' }, { key: 'subtitle', label: 'Role', type: 'text' }, ACCENT],
   callout: [
     { key: 'text', label: 'Label', type: 'text' },

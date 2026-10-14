@@ -72,7 +72,9 @@ export function lint(doc: ProjectDoc, ctx: LintContext): Issue[] {
     if (!covered) issues.push({ severity: 'fix', at: main, message: `From ${main.toFixed(2)}s to ${duration.toFixed(2)}s there is no picture: something extends past the end of the main track.` });
   }
 
-  const gs = doc.graphics.filter((g) => g.template !== 'progress' && g.template !== 'highlight');
+  // Effects (particles, light leaks, flares) cover the whole frame by design and carry no text, so they are not placed or timed like cards.
+  const EFFECT = new Set(['progress', 'highlight', 'particles', 'lightleak', 'flare']);
+  const gs = doc.graphics.filter((g) => !EFFECT.has(g.template));
   for (const g of gs) {
     const end = g.start + g.duration;
     const text = graphicText(g.props);

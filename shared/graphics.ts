@@ -606,6 +606,106 @@ function drawComment(t: TCtx): void {
   }
 }
 
+/** A Reddit-style post: votes on the left, subreddit and poster, the title in bold, a few lines of the post, the comment count. A card in the post's shape, not a screenshot. */
+function drawReddit(t: TCtx): void {
+  const { ctx, props, u: u0 } = t;
+  const u = u0 * CARD_SCALE;
+  const dark = str(props.theme, 'light') === 'dark';
+  const bg = str(props.background, dark ? '#1A1A1B' : '#FFFFFF');
+  const fg = str(props.color, dark ? '#D7DADC' : '#1C1C1C');
+  const sub = dark ? '#818384' : '#787C7E';
+  const orange = '#FF4500';
+  const subreddit = str(props.subreddit, 'r/television').replace(/^(?!r\/)/, 'r/');
+  const author = str(props.author, 'u/someone').replace(/^(?!u\/)/, 'u/');
+  const when = str(props.when, '5h');
+  const title = str(props.title, str(props.text, 'Post title'));
+  const body = str(props.body);
+  const score = str(props.score, '1.2k');
+  const comments = str(props.comments, '340');
+  const pad = 22 * u;
+  const votes = 54 * u;
+  const metaPx = 21 * u;
+  const titlePx = 31 * u;
+  const bodyPx = 25 * u;
+  const maxW = 560 * u;
+  ctx.font = fontString('Inter', 700, titlePx);
+  const tl = layoutText(ctx, title, maxW);
+  ctx.font = fontString('Inter', 500, bodyPx);
+  const bl = body ? layoutText(ctx, body, maxW) : null;
+  // At most four lines of the post itself, the last one ending in an ellipsis.
+  if (bl && bl.lines.length > 4) {
+    bl.lines = bl.lines.slice(0, 4);
+    const last = bl.lines[3];
+    const tail = last.toks[last.toks.length - 1];
+    if (tail) {
+      tail.text = `${tail.text}…`;
+      tail.w = ctx.measureText(tail.text).width;
+      last.width = last.toks.reduce((acc, k) => acc + k.w, 0) + bl.space * (last.toks.length - 1);
+    }
+  }
+  const textW = Math.max(tl.width, bl?.width ?? 0, 300 * u);
+  const titleH = titlePx * 1.25 * tl.lines.length;
+  const bodyH = bl ? bodyPx * 1.3 * bl.lines.length + 10 * u : 0;
+  const textH = metaPx * 1.6 + titleH + bodyH + metaPx * 1.9;
+  const w = pad * 2 + votes + 12 * u + textW;
+  const h = pad * 2 + textH;
+  card(t, -w / 2, -h / 2, w, h, 16 * u, bg);
+  // Vote column.
+  const vx = -w / 2 + pad + votes / 2;
+  const vy = -h / 2 + pad;
+  ctx.fillStyle = orange;
+  ctx.beginPath();
+  ctx.moveTo(vx, vy + 2 * u);
+  ctx.lineTo(vx + 14 * u, vy + 18 * u);
+  ctx.lineTo(vx + 6 * u, vy + 18 * u);
+  ctx.lineTo(vx + 6 * u, vy + 30 * u);
+  ctx.lineTo(vx - 6 * u, vy + 30 * u);
+  ctx.lineTo(vx - 6 * u, vy + 18 * u);
+  ctx.lineTo(vx - 14 * u, vy + 18 * u);
+  ctx.closePath();
+  ctx.fill();
+  ctx.font = fontString('Inter', 800, 22 * u);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = fg;
+  ctx.fillText(score, vx, vy + 58 * u);
+  ctx.fillStyle = sub;
+  ctx.beginPath();
+  ctx.moveTo(vx, vy + 96 * u);
+  ctx.lineTo(vx + 14 * u, vy + 80 * u);
+  ctx.lineTo(vx + 6 * u, vy + 80 * u);
+  ctx.lineTo(vx + 6 * u, vy + 68 * u);
+  ctx.lineTo(vx - 6 * u, vy + 68 * u);
+  ctx.lineTo(vx - 6 * u, vy + 80 * u);
+  ctx.lineTo(vx - 14 * u, vy + 80 * u);
+  ctx.closePath();
+  ctx.fill();
+  // Header, title, body, footer.
+  const tx = -w / 2 + pad + votes + 12 * u;
+  let ty = -h / 2 + pad;
+  ctx.textAlign = 'left';
+  ctx.font = fontString('Inter', 700, metaPx);
+  ctx.fillStyle = fg;
+  ctx.fillText(subreddit, tx, ty + metaPx);
+  const sw = ctx.measureText(subreddit).width;
+  ctx.font = fontString('Inter', 500, metaPx);
+  ctx.fillStyle = sub;
+  ctx.fillText(` · Posted by ${author} · ${when}`, tx + sw, ty + metaPx);
+  ty += metaPx * 1.6;
+  ctx.font = fontString('Inter', 700, titlePx);
+  ty += paintText(ctx, tl, tx, ty, titlePx, { color: fg, lineHeight: 1.25 });
+  if (bl) {
+    ty += 10 * u;
+    ctx.font = fontString('Inter', 500, bodyPx);
+    ty += paintText(ctx, bl, tx, ty, bodyPx, { color: fg, lineHeight: 1.3 });
+  }
+  ty += metaPx * 0.6;
+  ctx.font = fontString('Inter', 700, metaPx);
+  ctx.fillStyle = sub;
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(`💬 ${comments} comments     ↗ Share`, tx, ty + metaPx);
+}
+
 function drawHeadline(t: TCtx): void {
   const { ctx, props, u: u0 } = t;
   const u = u0 * CARD_SCALE;
@@ -894,6 +994,7 @@ const TEMPLATES: Record<Exclude<GraphicTemplate, 'progress'>, (t: TCtx) => void>
   text: drawTextTemplate,
   popup: drawPopup,
   comment: drawComment,
+  reddit: drawReddit,
   headline: drawHeadline,
   'lower-third': drawLowerThird,
   callout: drawCallout,
@@ -1129,6 +1230,10 @@ export const GRAPHIC_PRESETS: Record<string, GraphicPreset> = {
   headline: {
     template: 'headline', label: 'Headline card', x: 0.5, y: 0.24, animIn: 'slide-up', animOut: 'fade', duration: 3.5,
     props: { source: 'News', title: 'Headline goes here', subtitle: '' },
+  },
+  reddit: {
+    template: 'reddit', label: 'Reddit post', x: 0.5, y: 0.3, animIn: 'pop', animOut: 'fade', duration: 4,
+    props: { subreddit: 'r/television', author: 'u/someone', when: '5h', title: 'The finale broke me and I need to talk about it', body: '', score: '1.2k', comments: '340' },
   },
   'lower-third': {
     template: 'lower-third', label: 'Lower third', x: 0.36, y: 0.78, animIn: 'slide-right', animOut: 'fade', duration: 4,

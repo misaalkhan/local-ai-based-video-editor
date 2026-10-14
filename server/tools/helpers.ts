@@ -500,7 +500,8 @@ export function describeTimeline(p: Project): string {
 export function describeTranscript(p: Project, opts: { start?: number; end?: number; includeCut?: boolean } = {}): string {
   const v = view(p);
   const script = buildScript(v.doc, v.layout, (id) => getWords(p, id));
-  if (!script.length) return 'There is no speech on the main track (or it is still being transcribed).';
+  const voice = describeVoiceTrack(p, opts);
+  if (!script.length) return voice ? `There is no speech on the main track.\n${voice}` : 'There is no speech on the main track or the voice track (or it is still being transcribed).';
   const lines: string[] = [];
   let shown = 0;
   let lastEnd = 0;
@@ -527,7 +528,41 @@ export function describeTranscript(p: Project, opts: { start?: number; end?: num
   }
   if (shown > 0 && opts.end === undefined && v.duration - lastEnd >= 1) lines.push(`  [no speech ${sec(lastEnd)}-${sec(v.duration)}]`);
   const head = `TRANSCRIPT as the video plays now (times in seconds on the timeline; ${sec(v.duration)}s total). Each line is a sentence with the ids of its first and last word; a word id is the file's letter plus the word's number.`;
-  return [head, ...lines].join('\n');
+  return [head, ...lines, ...(voice ? ['', voice] : [])].join('\n');
+}
+
+/**
+ * Voiceover and other voice clips on the audio tracks, as they play. These are not cut by the word
+ * tools (re-record a line with add_voiceover instead), but they are the script when the main track
+ * is footage, and captions come from them.
+ */
+function describeVoiceTrack(p: Project, opts: { start?: number; end?: number } = {}): string {
+  const v = view(p);
+  const clips = v.doc.audio.filter((a) => a.role === 'voice').sort((a, b) => a.start - b.start);
+  if (!clips.length) return '';
+  const lines: string[] = [];
+  let pending = 0;
+  for (const a of clips) {
+    const m = p.media.get(a.mediaId);
+    if (!m) continue;
+    const end = a.start + srcDuration(a);
+    if (opts.end !== undefined && a.start > opts.end) continue;
+    if (opts.start !== undefined && end < opts.start) continue;
+    const ws = getWords(p, m.id);
+    if (!ws?.length) {
+      if (m.transcript === 'pending' || m.transcript === 'running') pending++;
+      // A voiceover's text is known from its name even before it is transcribed.
+      lines.push(`[${sec(a.start)}-${sec(end)}] ${a.name ?? m.name}${m.transcript === 'pending' || m.transcript === 'running' ? ' (still transcribing)' : ''}`);
+      continue;
+    }
+    const inRange = ws.filter((w) => w.t0 >= a.in - 1e-3 && w.t1 <= a.out + 1e-3);
+    const text = inRange.map((w, i) => (i === 0 || i === inRange.length - 1 ? `${w.text}` : w.text)).join(' ');
+    const first = ws.indexOf(inRange[0]);
+    const last = ws.indexOf(inRange[inRange.length - 1]);
+    lines.push(`[${sec(a.start)}-${sec(end)}] ${first >= 0 ? `${wordId(m, first)}-${wordId(m, last)}: ` : ''}${text}`);
+  }
+  if (!lines.length) return '';
+  return `VOICE TRACK (voiceover lines as they play; captions come from these; to change a line re-record it with add_voiceover and remove the old clip${pending ? '; some lines are still being transcribed' : ''}):\n${lines.join('\n')}`;
 }
 
 /** Every word in a time window with its id, for precise cuts. */

@@ -300,6 +300,7 @@ export type GraphicTemplate =
   | 'text'
   | 'popup'
   | 'comment'
+  | 'reddit'
   | 'headline'
   | 'lower-third'
   | 'callout'

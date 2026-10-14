@@ -1028,6 +1028,7 @@ export const TOOLS: ToolDef[] = [
     description: `Add an animated graphic. Templates and their props:
 - popup: emoji, title, subtitle (a card for a fact or definition)
 - comment: author, text, likes (a viewer comment bubble)
+- reddit: subreddit, author, when, title, body, score, comments (a Reddit thread as a post card, for commentary videos; fill it from research_reddit: real title, score and comment count, the body optional; it is a card in Reddit's shape, not a screenshot)
 - headline: source, title, subtitle (a press clipping or quote card)
 - lower-third: title (name), subtitle (role)
 - callout: text, target_x, target_y (a label with a line to a point in the frame)

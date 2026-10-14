@@ -6,6 +6,7 @@ const ITEMS: { id: string; name: string; note: string; icon: IconName }[] = [
   { id: 'popup', name: 'Pop-up card', note: 'Emoji, title and a line of detail', icon: 'sparkles' },
   { id: 'comment', name: 'Comment bubble', note: 'A viewer comment on screen', icon: 'chat' },
   { id: 'headline', name: 'Headline card', note: 'A press clipping or quote', icon: 'transcript' },
+  { id: 'reddit', name: 'Reddit post', note: 'A thread as a card: votes, title, comments', icon: 'chat' },
   { id: 'lower-third', name: 'Lower third', note: 'Name and role', icon: 'text' },
   { id: 'callout', name: 'Callout', note: 'A label with a pointer', icon: 'target' },
   { id: 'counter', name: 'Counter', note: 'A number that counts up', icon: 'zoomIn' },
