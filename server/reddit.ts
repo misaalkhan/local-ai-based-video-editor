@@ -39,7 +39,7 @@ export interface RedditThread {
   date: string;
   url: string;
   text: string;
-  top: { score: number; text: string }[];
+  top: { score: number; text: string; author?: string }[];
   /** The archive's record of the post, for the pictures it carries (image posts, galleries, videos). */
   raw?: Record<string, unknown>;
 }
@@ -102,7 +102,7 @@ export async function searchReddit(q: RedditQuery): Promise<RedditThread[]> {
           const c = await getJson<{ data: Comment[] }>(`${BASE}/comment/?link_id=${s.id}&size=${perThread}&sort_type=score&sort=desc`);
           top = (c.data ?? [])
             .filter((x) => x.body && x.body !== '[removed]' && x.body !== '[deleted]')
-            .map((x) => ({ score: x.score, text: clean(x.body, 280) }));
+            .map((x) => ({ score: x.score, text: clean(x.body, 280), author: x.author && x.author !== '[deleted]' ? x.author : undefined }));
         } catch {
           // A thread without comments is still worth listing.
         }
@@ -128,9 +128,10 @@ export function describeThreads(threads: RedditThread[]): string {
   if (!threads.length) return 'No threads found. Try fewer or different words, or name the subreddit.';
   return threads
     .map((t, i) => {
-      const head = `${i + 1}. r/${t.subreddit} · ${t.date} · ${t.score} points · ${t.comments} comments\n   "${t.title}"\n   ${t.url}`;
+      const author = typeof t.raw?.author === 'string' && t.raw.author !== '[deleted]' ? ` · by u/${t.raw.author}` : '';
+      const head = `${i + 1}. r/${t.subreddit} · ${t.date} · ${t.score} points · ${t.comments} comments${author}\n   "${t.title}"\n   ${t.url}`;
       const body = t.text ? `\n   Post: ${t.text}` : '';
-      const comments = t.top.length ? `\n   Top comments:\n${t.top.map((c) => `   - (${c.score}) ${c.text}`).join('\n')}` : '';
+      const comments = t.top.length ? `\n   Top comments (score, u/name):\n${t.top.map((c) => `   - (${c.score}${c.author ? `, u/${c.author}` : ''}) ${c.text}`).join('\n')}` : '';
       return head + body + comments;
     })
     .join('\n\n');
@@ -146,7 +147,7 @@ export async function readThread(id: string, comments = 12): Promise<RedditThrea
   if (perThread > 0 && s.num_comments > 0) {
     try {
       const c = await getJson<{ data: Comment[] }>(`${BASE}/comment/?link_id=${s.id}&size=${perThread}&sort_type=score&sort=desc`);
-      top = (c.data ?? []).filter((x) => x.body && x.body !== '[removed]' && x.body !== '[deleted]').map((x) => ({ score: x.score, text: clean(x.body, 400) }));
+      top = (c.data ?? []).filter((x) => x.body && x.body !== '[removed]' && x.body !== '[deleted]').map((x) => ({ score: x.score, text: clean(x.body, 400), author: x.author && x.author !== '[deleted]' ? x.author : undefined }));
     } catch {
       // The post alone is still worth reading.
     }

@@ -304,12 +304,14 @@ export function pagePictures(html: string, base: string): Omit<LinkPicture, 'id'
     let url = absolute(src, base);
     if (!url || seen.has(url) || SKIP_IMAGE.test(url)) return;
     if ((width && width < 120) || (height && height < 100)) return;
+    if (alt && /^(icon|logo|avatar|thumbnail)$/i.test(alt.trim())) return;
     // Wikipedia and Commons thumbnails point at the full picture.
     const wm = /^https?:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/([a-z]+)\/thumb\/([^/]+\/[^/]+\/[^/]+)\/\d+px-[^/?]+(?:\?.*)?$/.exec(url);
     if (wm) {
       url = `https://upload.wikimedia.org/wikipedia/${wm[1]}/${wm[2]}`;
       width = undefined;
       height = undefined;
+      if (SKIP_IMAGE.test(url) || seen.has(url)) return;
     }
     const ext = (new URL(url).pathname.split('.').pop() ?? '').toLowerCase();
     const kind: LinkPicture['kind'] = VIDEO_EXT.includes(ext) && ext !== 'gif' ? 'video' : 'image';
@@ -346,7 +348,11 @@ export function pagePictures(html: string, base: string): Omit<LinkPicture, 'id'
     if (src) add(src, 'video in the page');
   }
   // Big file links (photo galleries, wikis) point straight at the picture.
-  for (const m of region.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi)) add(m[1], 'linked picture');
+  for (const m of region.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+\.(?:jpe?g|png|webp)(?:\?[^"']*)?)["'][^>]*>/gi)) {
+    // A wiki's File: page is a web page about the picture, not the picture; the <img> next to it was taken already.
+    if (/\/(?:wiki\/)?(?:File|Datei|Fichier|Archivo):/i.test(m[1])) continue;
+    add(m[1], 'linked picture');
+  }
   return out.slice(0, 60);
 }
 
