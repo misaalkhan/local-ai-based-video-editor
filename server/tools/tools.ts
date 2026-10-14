@@ -31,6 +31,7 @@ import { fetchGif, found as foundGifs, searchGifs } from '../gifs.ts';
 import { STOCK_SOURCES, addStock, availableSources, searchStock, stockItem } from '../stock.ts';
 import type { StockKind, StockSource } from '../stock.ts';
 import { describeThreads, searchReddit } from '../reddit.ts';
+import { addLinkMedia, describeLink, readLink, searchImages } from '../links.ts';
 import { saveSound, searchSounds, soundCredit } from '../sounds.ts';
 import type { FoundSound } from '../sounds.ts';
 import { fetchMeme, findTemplate, memeTemplates } from '../memes.ts';
@@ -1811,6 +1812,52 @@ All cards accept theme light|dark and accent (#RRGGBB). ${POSITION} Give each a 
     run: async (_ctx, a) => {
       const threads = await searchReddit({ query: str(a.query), subreddit: a.subreddit !== undefined ? str(a.subreddit) : undefined, limit: optNum(a.limit, 'limit'), comments: optNum(a.comments, 'comments'), days: optNum(a.days, 'days'), minScore: optNum(a.min_score, 'min_score') }).catch((err: Error) => bad(err.message));
       return { text: `REDDIT on "${str(a.query)}" (${threads.length} threads, biggest first):\n\n${describeThreads(threads)}` };
+    },
+  },
+  {
+    name: 'read_link',
+    description: 'Open a link the user gave and return what is there: a Reddit thread (post, top comments, scores, and its pictures: post image, gallery, pictures linked in comments), a YouTube video (title, channel, description, thumbnail and the transcript when it has captions), a public Google Doc (its text), a picture or video file, or any article or page (readable text plus the pictures on it). Every picture gets an id; add_link_media downloads the ones wanted. Open every link in a request before writing, and use what it says rather than guessing. Sites that need a login (Instagram, TikTok, X, Netflix) give only a title, a summary line and the lead picture; some news sites refuse scripts; then say which link and ask the user to paste the text or attach the pictures. Nothing is taken into the project by reading.',
+    schema: obj({ url: S('The link, as given.'), comments: N('Reddit: top comments to include, default 12, max 50.'), max_chars: N('Cut the text at this many characters (default 12000; 20000 for a YouTube transcript).') }, ['url']),
+    label: (a) => `Opening ${str(a.url).replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)}`,
+    readOnly: true,
+    run: async (_ctx, a) => {
+      const d = await readLink(str(a.url), { comments: optNum(a.comments, 'comments'), maxChars: optNum(a.max_chars, 'max_chars') }).catch((err: Error) => bad(err.message));
+      return { text: describeLink(d) };
+    },
+  },
+  {
+    name: 'search_images',
+    description: `Pictures from across the web for a prompt (a person, a cast, a scene, a poster), through Google image search with the user's own key from Settings (when it is not set, the tool says so: then use WebSearch to find pages and read_link to take their pictures, or find_footage kind=image for licensed stock). Returns candidates with ids, sizes and the page each sits on; add_link_media downloads the ones that fit. Be specific ("Harry Jowsey red carpet 2025", "Amber Mozo Let's Marry Harry wedding dress"). Pictures come with whatever rights their site has; the source is kept with each file and the user decides what goes on screen, as with anything they attach. For stock b-roll, find_footage is the better tool.`,
+    schema: obj({ query: S('What the picture should show.'), limit: N('How many to list, default 8, max 10.') }, ['query']),
+    label: (a) => `Searching images for "${str(a.query)}"`,
+    readOnly: true,
+    run: async (_ctx, a) => {
+      const q = str(a.query).trim();
+      const hits = await searchImages(q, optNum(a.limit, 'limit') ?? 8).catch((err: Error) => bad(err.message));
+      if (!hits.length) return { text: `No pictures found for "${q}". Try other words, a name spelt differently, or WebSearch for an article and read_link.` };
+      return { text: `Pictures for "${q}" (add_link_media with the ids you want; the source stays with each file):\n${hits.map((h) => `  ${h.id}  ${h.width && h.height ? `${h.width}x${h.height}` : '?'}  "${(h.alt ?? '').slice(0, 80)}"  on ${h.host}  ${h.page.length > 80 ? `${h.page.slice(0, 77)}…` : h.page}`).join('\n')}` };
+    },
+  },
+  {
+    name: 'add_link_media',
+    description: 'Download pictures or videos listed by read_link or search_images (their ids) into the project and prepare them like uploads. Each becomes a media file with a letter; use add_clip (with a push-in from add_motion for a still) or add_broll. The file keeps its source address and a "Source: …" line; name the sources in your reply. Tiny pictures (icons, placeholders) are refused. Pick the pictures that show what the line is about; skip logos, ads and unrelated shots.',
+    schema: obj({ ids: { type: 'array', items: { type: 'string' }, description: 'One or more ids from read_link or search_images.' } }, ['ids']),
+    label: (a) => `Fetching ${Array.isArray(a.ids) ? a.ids.length : 1} picture${Array.isArray(a.ids) && a.ids.length === 1 ? '' : 's'} from the link`,
+    run: async (ctx, a) => {
+      const ids = (Array.isArray(a.ids) ? (a.ids as unknown[]) : [a.ids]).map((x) => String(x));
+      if (!ids.length) bad('Give at least one id from read_link or search_images.');
+      const lines: string[] = [];
+      const sources = new Set<string>();
+      for (const id of ids) {
+        try {
+          const m = await addLinkMedia(ctx.p, id);
+          lines.push(`  [${m.tag}] "${m.name}" (${m.kind}${m.duration ? `, ${sec(m.duration)}s` : ''}, ${m.width}x${m.height})`);
+          if (m.sourceUrl) sources.add(m.sourceUrl);
+        } catch (err) {
+          lines.push(`  ${id}: ${(err as Error).message}`);
+        }
+      }
+      return { text: `Fetched:\n${lines.join('\n')}${sources.size ? `\nSources (name them in your reply):\n${[...sources].map((c) => `  ${c}`).join('\n')}` : ''}\nPictures are ready for add_clip now; videos are being prepared (preview, then transcript).` };
     },
   },
   {

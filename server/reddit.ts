@@ -40,6 +40,8 @@ export interface RedditThread {
   url: string;
   text: string;
   top: { score: number; text: string }[];
+  /** The archive's record of the post, for the pictures it carries (image posts, galleries, videos). */
+  raw?: Record<string, unknown>;
 }
 
 export interface RedditQuery {
@@ -132,4 +134,54 @@ export function describeThreads(threads: RedditThread[]): string {
       return head + body + comments;
     })
     .join('\n\n');
+}
+
+/** One thread by its id (from a reddit.com/…/comments/<id>/… link), with its top comments. */
+export async function readThread(id: string, comments = 12): Promise<RedditThread | null> {
+  const r = await getJson<{ data: Submission[] }>(`${BASE}/submission/?ids=${encodeURIComponent(id)}`);
+  const s = (r.data ?? []).find((x) => x.id === id) ?? r.data?.[0];
+  if (!s) return null;
+  let top: { score: number; text: string }[] = [];
+  const perThread = Math.max(0, Math.min(50, comments));
+  if (perThread > 0 && s.num_comments > 0) {
+    try {
+      const c = await getJson<{ data: Comment[] }>(`${BASE}/comment/?link_id=${s.id}&size=${perThread}&sort_type=score&sort=desc`);
+      top = (c.data ?? []).filter((x) => x.body && x.body !== '[removed]' && x.body !== '[deleted]').map((x) => ({ score: x.score, text: clean(x.body, 400) }));
+    } catch {
+      // The post alone is still worth reading.
+    }
+  }
+  return {
+    id: s.id,
+    title: clean(s.title, 300),
+    subreddit: s.subreddit,
+    score: s.score,
+    comments: s.num_comments,
+    date: date(s.created_utc),
+    url: s.permalink ? `https://www.reddit.com${s.permalink}` : `https://www.reddit.com/comments/${s.id}`,
+    text: clean(s.selftext ?? '', 3000),
+    top,
+    raw: s as unknown as Record<string, unknown>,
+  };
+}
+
+/** The biggest threads of a subreddit over the last `days` days. */
+export async function topOfSubreddit(subreddit: string, days = 30, limit = 10): Promise<RedditThread[]> {
+  const params = new URLSearchParams({ subreddit: subreddit.replace(/^r\//, ''), size: String(Math.min(50, limit * 2)), sort_type: 'score', sort: 'desc', after: String(Math.floor(Date.now() / 1000 - days * 86400)) });
+  const r = await getJson<{ data: Submission[] }>(`${BASE}/submission/?${params}`);
+  return (r.data ?? [])
+    .filter((s) => !s.over_18 && s.title)
+    .sort((a, b) => b.score - a.score || b.num_comments - a.num_comments)
+    .slice(0, limit)
+    .map((s) => ({
+      id: s.id,
+      title: clean(s.title, 200),
+      subreddit: s.subreddit,
+      score: s.score,
+      comments: s.num_comments,
+      date: date(s.created_utc),
+      url: s.permalink ? `https://www.reddit.com${s.permalink}` : `https://www.reddit.com/comments/${s.id}`,
+      text: clean(s.selftext ?? '', 300),
+      top: [],
+    }));
 }

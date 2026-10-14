@@ -67,7 +67,7 @@ function expandPath(p: string): string[] {
 
 /** Settings as shown to the browser: keys are never sent back, only whether one is set. */
 const mask = (v: string | undefined) => (v ? '•'.repeat(8) : '');
-const masked = (s: Settings): Settings => ({ ...s, tenorKey: mask(s.tenorKey), freesoundKey: mask(s.freesoundKey), pexelsKey: mask(s.pexelsKey), pixabayKey: mask(s.pixabayKey) });
+const masked = (s: Settings): Settings => ({ ...s, tenorKey: mask(s.tenorKey), freesoundKey: mask(s.freesoundKey), pexelsKey: mask(s.pexelsKey), pixabayKey: mask(s.pixabayKey), googleKey: mask(s.googleKey), googleCx: mask(s.googleCx) });
 
 export function registerRoutes(r: Router): void {
   r.get('/api/status', (c) => c.json(toolStatus()));
@@ -120,6 +120,8 @@ export function registerRoutes(r: Router): void {
     if (typeof body.freesoundKey === 'string' && !/^•+$/.test(body.freesoundKey)) patch.freesoundKey = body.freesoundKey.trim();
     if (typeof body.pexelsKey === 'string' && !/^•+$/.test(body.pexelsKey)) patch.pexelsKey = body.pexelsKey.trim();
     if (typeof body.pixabayKey === 'string' && !/^•+$/.test(body.pixabayKey)) patch.pixabayKey = body.pixabayKey.trim();
+    if (typeof body.googleKey === 'string' && !/^•+$/.test(body.googleKey)) patch.googleKey = body.googleKey.trim();
+    if (typeof body.googleCx === 'string' && !/^•+$/.test(body.googleCx)) patch.googleCx = body.googleCx.trim();
     let s: Settings;
     try {
       s = saveSettings(patch);

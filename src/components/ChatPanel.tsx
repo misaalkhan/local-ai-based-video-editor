@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { ChatMessage } from '../../shared/types.ts';
 import { api } from '../api.ts';
+import { keepLinks } from '../../shared/links.ts';
 import { agentBusy, fail, toast, useStore } from '../store.ts';
 import { importFiles } from '../actions.ts';
 import { Icon, Spinner } from '../icons.tsx';
@@ -229,9 +230,17 @@ export function ChatPanel({ mode = 'editor' }: { mode?: 'editor' | 'planner' } =
           ref={taRef}
           value={text}
           rows={1}
-          placeholder={busy ? 'Working on it…' : planner ? 'Ask the planner, or tell it about yourself and your footage…' : 'Describe the edit you want…'}
+          placeholder={busy ? 'Working on it…' : planner ? 'Ask the planner, or tell it about yourself and your footage…' : 'Describe the edit you want, or paste a link…'}
           disabled={!!off}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            // Text copied from a document keeps its links only in the HTML flavour; put the addresses back so the assistant can open them.
+            const merged = keepLinks(e.clipboardData.getData('text/html'), e.clipboardData.getData('text/plain'));
+            if (!merged) return;
+            e.preventDefault();
+            const ta = e.currentTarget;
+            setText(text.slice(0, ta.selectionStart) + merged + text.slice(ta.selectionEnd));
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();

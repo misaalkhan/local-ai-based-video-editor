@@ -507,7 +507,7 @@ export interface MediaAsset {
   /** Share of the audio that is above the noise floor, 0..1. */
   soundRatio?: number;
   /** Where the file came from when it was not added by the user. */
-  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme' | 'still' | 'sequence' | 'stock';
+  origin?: 'sfx' | 'voiceover' | 'library' | 'gif' | 'meme' | 'still' | 'sequence' | 'stock' | 'link';
   /** Credit line owed in the post when the file came from a stock source under an attribution licence; empty when nothing is owed. */
   credit?: string;
   /** Where a stock file came from on the web. */
@@ -727,6 +727,9 @@ export interface Settings {
   /** Pexels and Pixabay keys for stock footage search; the keyless sources work without them. */
   pexelsKey?: string;
   pixabayKey?: string;
+  /** Google Custom Search key and engine id for image search by prompt; empty means the search is off. */
+  googleKey?: string;
+  googleCx?: string;
   updatedAt: number;
 }
 

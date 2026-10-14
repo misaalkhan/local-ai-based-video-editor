@@ -290,7 +290,7 @@ export const PLANNER_TOOLS: ToolDef[] = [
 ];
 
 /** Media tools the planner shares with the editor. */
-export const PLANNER_SHARED = ['inspect_media', 'save_media_notes', 'get_media_transcript', 'list_library', 'list_recipes'];
+export const PLANNER_SHARED = ['inspect_media', 'save_media_notes', 'get_media_transcript', 'list_library', 'list_recipes', 'read_link', 'research_reddit'];
 
 export function isLibrary(id: string): boolean {
   return id === 'library';

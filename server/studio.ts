@@ -35,8 +35,8 @@ function write(name: string, value: unknown): void {
 const EMPTY_SETTINGS: Settings = { assistantModel: 'sonnet', exportDir: '', tenorKey: '', freesoundKey: '', updatedAt: 0 };
 
 /** The keys that live in the Keychain rather than in settings.json. */
-const SECRET_KEYS: ('tenorKey' | 'freesoundKey' | 'pexelsKey' | 'pixabayKey')[] = ['tenorKey', 'freesoundKey', 'pexelsKey', 'pixabayKey'];
-const secretName = (k: string) => k.replace(/Key$/, '');
+const SECRET_KEYS: ('tenorKey' | 'freesoundKey' | 'pexelsKey' | 'pixabayKey' | 'googleKey' | 'googleCx')[] = ['tenorKey', 'freesoundKey', 'pexelsKey', 'pixabayKey', 'googleKey', 'googleCx'];
+const secretName = (k: string) => (k === 'googleCx' ? 'googlecx' : k.replace(/Key$/, ''));
 
 /** Keys saved by an older version in the file are moved into the Keychain once, then dropped from the file. */
 function migrateSecrets(stored: Partial<Settings>): Partial<Settings> {
@@ -60,7 +60,7 @@ function migrateSecrets(stored: Partial<Settings>): Partial<Settings> {
 
 export function getSettings(): Settings {
   const stored = migrateSecrets(read<Partial<Settings>>('settings.json', {}));
-  return { ...EMPTY_SETTINGS, ...stored, tenorKey: getSecret('tenor'), freesoundKey: getSecret('freesound'), pexelsKey: getSecret('pexels'), pixabayKey: getSecret('pixabay') };
+  return { ...EMPTY_SETTINGS, ...stored, tenorKey: getSecret('tenor'), freesoundKey: getSecret('freesound'), pexelsKey: getSecret('pexels'), pixabayKey: getSecret('pixabay'), googleKey: getSecret('google'), googleCx: getSecret('googlecx') };
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
@@ -71,7 +71,7 @@ export function saveSettings(patch: Partial<Settings>): Settings {
   }
   const file = { ...read<Partial<Settings>>('settings.json', {}) };
   for (const k of SECRET_KEYS) delete file[k];
-  write('settings.json', { ...EMPTY_SETTINGS, ...file, ...rest, tenorKey: undefined, freesoundKey: undefined, pexelsKey: undefined, pixabayKey: undefined, updatedAt: Date.now() });
+  write('settings.json', { ...EMPTY_SETTINGS, ...file, ...rest, tenorKey: undefined, freesoundKey: undefined, pexelsKey: undefined, pixabayKey: undefined, googleKey: undefined, googleCx: undefined, updatedAt: Date.now() });
   return getSettings();
 }
 

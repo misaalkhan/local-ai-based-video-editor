@@ -14,6 +14,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [fsKey, setFsKey] = useState('');
   const [pexels, setPexels] = useState('');
   const [pixabay, setPixabay] = useState('');
+  const [google, setGoogle] = useState('');
+  const [googleCx, setGoogleCx] = useState('');
   useEffect(() => {
     api.settings().then((r) => {
       setS(r.settings);
@@ -22,11 +24,13 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
       setFsKey(r.settings.freesoundKey ?? '');
       setPexels(r.settings.pexelsKey ?? '');
       setPixabay(r.settings.pixabayKey ?? '');
+      setGoogle(r.settings.googleKey ?? '');
+      setGoogleCx(r.settings.googleCx ?? '');
     }).catch(fail);
   }, []);
   const save = () => {
     if (!s) return;
-    api.saveSettings({ assistantModel: s.assistantModel, exportDir: s.exportDir, tenorKey: key, freesoundKey: fsKey, pexelsKey: pexels, pixabayKey: pixabay })
+    api.saveSettings({ assistantModel: s.assistantModel, exportDir: s.exportDir, tenorKey: key, freesoundKey: fsKey, pexelsKey: pexels, pixabayKey: pixabay, googleKey: google, googleCx: googleCx })
       .then(() => {
         toast('Settings saved.', 'success');
         onClose();
@@ -71,6 +75,15 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </Field>
           <p className="hint">
             Pexels and Pixabay keys are free and instant: sign up at pexels.com/api and pixabay.com/api/docs, copy the key. Their footage is free to use in your videos with no credit. Find footage also searches Wikimedia Commons, Openverse, the Internet Archive and NASA without any key.
+          </p>
+          <Field label="Google image search key" hint={google && /^•+$/.test(google) ? 'set, kept in your Keychain' : 'pictures by prompt, from the whole web'}>
+            <TextInput value={google} placeholder="paste a Custom Search API key" onChange={setGoogle} />
+          </Field>
+          <Field label="Google search engine id" hint={googleCx && /^•+$/.test(googleCx) ? 'set' : 'the cx of a Programmable Search Engine'}>
+            <TextInput value={googleCx} placeholder="paste the engine id (cx)" onChange={setGoogleCx} />
+          </Field>
+          <p className="hint">
+            Google's own search pages refuse scripts, so image search by prompt goes through Google's Custom Search API with your key: 100 searches a day are free. In Google Cloud Console enable "Custom Search API" and make an API key; at programmablesearchengine.google.com create an engine with "Search the entire web" and "Image search" on, and copy its id. The README has the steps. Pictures found this way keep their source; what goes on screen is your call.
           </p>
           <p className="hint">Keys are saved in your Mac's Keychain (item "Local Studio"), never in a file, and never sent back to the browser. Everything else in Settings is a plain preference.</p>
         </div>

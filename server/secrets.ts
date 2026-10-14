@@ -1,4 +1,4 @@
-// API keys (Tenor, Freesound) live in the macOS Keychain, not in a file: a
+// API keys (Tenor, Freesound, Pexels, Pixabay, Google search) live in the macOS Keychain, not in a file: a
 // copy of the data folder, a backup or a stray commit never carries them. The
 // browser only ever sees whether a key is set. On other systems the keys come
 // from the environment (STUDIO_TENOR_KEY, STUDIO_FREESOUND_KEY).
@@ -12,7 +12,7 @@ const KEY = /^[A-Za-z0-9_\-.:+/=]{8,512}$/;
 
 const envName = (name: string) => `STUDIO_${name.toUpperCase()}_KEY`;
 
-/** The key called `name` (tenor, freesound), or '' when none is set. */
+/** The key called `name` (tenor, freesound, pexels, pixabay, google, googlecx), or '' when none is set. */
 export function getSecret(name: string): string {
   const hit = cache.get(name);
   if (hit !== undefined) return hit;
